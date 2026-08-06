@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedHomeRouteImport } from './routes/_authenticated/home'
+import { Route as AuthenticatedCCommunityIdRouteImport } from './routes/_authenticated/c.$communityId'
 import { Route as AuthenticatedDmPeerIdRouteImport } from './routes/_authenticated/dm.$peerId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -34,6 +35,12 @@ const AuthenticatedHomeRoute = AuthenticatedHomeRouteImport.update({
   path: '/home',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedCCommunityIdRoute =
+  AuthenticatedCCommunityIdRouteImport.update({
+    id: '/c/$communityId',
+    path: '/c/$communityId',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedDmPeerIdRoute = AuthenticatedDmPeerIdRouteImport.update({
   id: '/dm/$peerId',
   path: '/dm/$peerId',
@@ -44,12 +51,14 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/home': typeof AuthenticatedHomeRoute
+  '/c/$communityId': typeof AuthenticatedCCommunityIdRoute
   '/dm/$peerId': typeof AuthenticatedDmPeerIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/home': typeof AuthenticatedHomeRoute
+  '/c/$communityId': typeof AuthenticatedCCommunityIdRoute
   '/dm/$peerId': typeof AuthenticatedDmPeerIdRoute
 }
 export interface FileRoutesById {
@@ -58,19 +67,21 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/_authenticated/home': typeof AuthenticatedHomeRoute
+  '/_authenticated/c/$communityId': typeof AuthenticatedCCommunityIdRoute
   '/_authenticated/dm/$peerId': typeof AuthenticatedDmPeerIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/home' | '/dm/$peerId'
+  fullPaths: '/' | '/auth' | '/home' | '/c/$communityId' | '/dm/$peerId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/home' | '/dm/$peerId'
+  to: '/' | '/auth' | '/home' | '/c/$communityId' | '/dm/$peerId'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
     | '/auth'
     | '/_authenticated/home'
+    | '/_authenticated/c/$communityId'
     | '/_authenticated/dm/$peerId'
   fileRoutesById: FileRoutesById
 }
@@ -110,6 +121,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedHomeRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/c/$communityId': {
+      id: '/_authenticated/c/$communityId'
+      path: '/c/$communityId'
+      fullPath: '/c/$communityId'
+      preLoaderRoute: typeof AuthenticatedCCommunityIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/dm/$peerId': {
       id: '/_authenticated/dm/$peerId'
       path: '/dm/$peerId'
@@ -122,11 +140,13 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedHomeRoute: typeof AuthenticatedHomeRoute
+  AuthenticatedCCommunityIdRoute: typeof AuthenticatedCCommunityIdRoute
   AuthenticatedDmPeerIdRoute: typeof AuthenticatedDmPeerIdRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedHomeRoute: AuthenticatedHomeRoute,
+  AuthenticatedCCommunityIdRoute: AuthenticatedCCommunityIdRoute,
   AuthenticatedDmPeerIdRoute: AuthenticatedDmPeerIdRoute,
 }
 
