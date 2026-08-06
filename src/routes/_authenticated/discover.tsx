@@ -66,19 +66,25 @@ function DiscoverPage() {
     },
   });
 
-  const join = async (c: Community) => {
+  const join = async (c: Community): Promise<void> => {
     const { error } = await supabase
       .from("community_members")
       .insert({ community_id: c.id, user_id: user!.id, role: "member" });
-    if (error) return toast.error(error.message);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
     toast.success(`Joined ${c.name}`);
     void qc.invalidateQueries({ queryKey: ["my-communities"] });
     void qc.invalidateQueries({ queryKey: ["my-community-ids", user?.id] });
     void navigate({ to: "/c/$communityId", params: { communityId: c.id } });
   };
 
-  const create = async () => {
-    if (!name.trim()) return toast.error("Give your community a name");
+  const create = async (): Promise<void> => {
+    if (!name.trim()) {
+      toast.error("Give your community a name");
+      return;
+    }
     setBusy(true);
     try {
       const { data, error } = await supabase
