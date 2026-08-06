@@ -1,24 +1,43 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { useEffect } from "react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { supabase } from "@/integrations/supabase/client";
 
-// No head() here: the home route inherits title/description/og/twitter from
-// __root.tsx, and ships no og:image so serve-time hosting can inject the
-// project's social preview (explicit og:image or latest screenshot).
 export const Route = createFileRoute("/")({
+  ssr: false,
+  head: () => ({
+    meta: [
+      { title: "JUBI — Communities, Channels & Chat" },
+      {
+        name: "description",
+        content:
+          "JUBI is a mobile-first chat app: build communities, talk in text channels, DM friends and share files in real time.",
+      },
+      { property: "og:title", content: "JUBI — Communities, Channels & Chat" },
+      {
+        property: "og:description",
+        content: "Build communities, talk in text channels and DM friends in real time.",
+      },
+    ],
+  }),
   component: Index,
 });
 
-// IMPORTANT: Replace this placeholder. See ./README.md for routing conventions.
 function Index() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    void (async () => {
+      const { data } = await supabase.auth.getUser();
+      void navigate({ to: data.user ? "/home" : "/auth", replace: true });
+    })();
+  }, [navigate]);
+
   return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
-      />
-    </div>
+    <main className="flex min-h-[100dvh] items-center justify-center bg-background">
+      <div className="flex h-16 w-16 animate-pulse items-center justify-center rounded-3xl bg-brand font-display text-3xl font-extrabold text-brand-foreground">
+        J
+      </div>
+      <h1 className="sr-only">JUBI — Communities, Channels & Chat</h1>
+    </main>
   );
 }
