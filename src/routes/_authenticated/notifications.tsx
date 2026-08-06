@@ -25,7 +25,7 @@ type Notification = {
   type: string;
   title: string;
   body: string | null;
-  is_read: boolean;
+  read: boolean;
   created_at: string;
 };
 
@@ -63,7 +63,7 @@ function NotificationsPage() {
   }, [user, qc]);
 
   const markAll = async () => {
-    await supabase.from("notifications").update({ is_read: true }).eq("user_id", user!.id).eq("is_read", false);
+    await supabase.from("notifications").update({ read: true }).eq("user_id", user!.id).eq("read", false);
     void qc.invalidateQueries({ queryKey: ["notifications", user?.id] });
     void qc.invalidateQueries({ queryKey: ["unread-count", user?.id] });
   };
@@ -87,7 +87,7 @@ function NotificationsPage() {
           {(data ?? []).map((n) => (
             <div
               key={n.id}
-              className={`border-b border-border px-4 py-3 ${n.is_read ? "" : "bg-brand-soft"}`}
+              className={`border-b border-border px-4 py-3 ${n.read ? "" : "bg-brand-soft"}`}
             >
               <div className="flex items-baseline justify-between gap-2">
                 <p className="text-sm font-semibold">{n.title}</p>
