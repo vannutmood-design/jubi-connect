@@ -74,14 +74,17 @@ function FriendsPage() {
 
   const refresh = () => void qc.invalidateQueries({ queryKey: ["friendships", user?.id] });
 
-  const sendRequest = async (peer: Profile) => {
+  const sendRequest = async (peer: Profile): Promise<void> => {
     const { error } = await supabase
       .from("friendships")
       .upsert(
         { requester_id: user!.id, addressee_id: peer.id, status: "pending" },
         { onConflict: "requester_id,addressee_id" },
       );
-    if (error) return toast.error(error.message);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
     await supabase.from("notifications").insert({
       user_id: peer.id,
       type: "friend_request",
