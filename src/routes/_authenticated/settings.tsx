@@ -103,7 +103,7 @@ function SettingsPage() {
   const onAvatar = async (file: File) => {
     if (!user) return;
     try {
-      const path = await uploadFile(file, `${user.id}/avatar`);
+      const path = await uploadFile(user.id, file, "avatars");
       const { error } = await supabase.from("profiles").update({ avatar_url: path }).eq("id", user.id);
       if (error) throw error;
       await refreshProfile();
