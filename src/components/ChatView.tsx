@@ -37,16 +37,24 @@ export function ChatView(props: Props) {
     queryKey,
     enabled: !!user && !!key,
     queryFn: async () => {
-      const table = props.mode === "channel" ? "messages" : "direct_messages";
-      let q = supabase.from(table).select("*").order("created_at", { ascending: true }).limit(200);
-      if (props.mode === "channel") q = q.eq("channel_id", props.channelId);
-      else
-        q = q.or(
-          `and(sender_id.eq.${user!.id},recipient_id.eq.${props.peerId}),and(sender_id.eq.${props.peerId},recipient_id.eq.${user!.id})`,
-        );
-      const { data: rows, error } = await q;
+      const { data: rows, error } =
+        props.mode === "channel"
+          ? await supabase
+              .from("messages")
+              .select("*")
+              .eq("channel_id", props.channelId)
+              .order("created_at", { ascending: true })
+              .limit(200)
+          : await supabase
+              .from("direct_messages")
+              .select("*")
+              .or(
+                `and(sender_id.eq.${user!.id},recipient_id.eq.${props.peerId}),and(sender_id.eq.${props.peerId},recipient_id.eq.${user!.id})`,
+              )
+              .order("created_at", { ascending: true })
+              .limit(200);
       if (error) throw error;
-      const messages = (rows ?? []).map((r) => {
+      const messages = ((rows ?? []) as unknown as Record<string, unknown>[]).map((r) => {
         const row = r as Record<string, unknown>;
         return {
           id: row['id'] as string,
