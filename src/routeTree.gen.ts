@@ -16,6 +16,7 @@ import { Route as AuthenticatedDiscoverRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedFriendsRouteImport } from './routes/_authenticated/friends'
 import { Route as AuthenticatedHomeRouteImport } from './routes/_authenticated/home'
 import { Route as AuthenticatedNotificationsRouteImport } from './routes/_authenticated/notifications'
+import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedCCommunityIdRouteImport } from './routes/_authenticated/c.$communityId'
 import { Route as AuthenticatedDmPeerIdRouteImport } from './routes/_authenticated/dm.$peerId'
 
@@ -54,6 +55,11 @@ const AuthenticatedNotificationsRoute =
     path: '/notifications',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedCCommunityIdRoute =
   AuthenticatedCCommunityIdRouteImport.update({
     id: '/c/$communityId',
@@ -73,6 +79,7 @@ export interface FileRoutesByFullPath {
   '/friends': typeof AuthenticatedFriendsRoute
   '/home': typeof AuthenticatedHomeRoute
   '/notifications': typeof AuthenticatedNotificationsRoute
+  '/settings': typeof AuthenticatedSettingsRoute
   '/c/$communityId': typeof AuthenticatedCCommunityIdRoute
   '/dm/$peerId': typeof AuthenticatedDmPeerIdRoute
 }
@@ -83,6 +90,7 @@ export interface FileRoutesByTo {
   '/friends': typeof AuthenticatedFriendsRoute
   '/home': typeof AuthenticatedHomeRoute
   '/notifications': typeof AuthenticatedNotificationsRoute
+  '/settings': typeof AuthenticatedSettingsRoute
   '/c/$communityId': typeof AuthenticatedCCommunityIdRoute
   '/dm/$peerId': typeof AuthenticatedDmPeerIdRoute
 }
@@ -95,6 +103,7 @@ export interface FileRoutesById {
   '/_authenticated/friends': typeof AuthenticatedFriendsRoute
   '/_authenticated/home': typeof AuthenticatedHomeRoute
   '/_authenticated/notifications': typeof AuthenticatedNotificationsRoute
+  '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/c/$communityId': typeof AuthenticatedCCommunityIdRoute
   '/_authenticated/dm/$peerId': typeof AuthenticatedDmPeerIdRoute
 }
@@ -107,6 +116,7 @@ export interface FileRouteTypes {
     | '/friends'
     | '/home'
     | '/notifications'
+    | '/settings'
     | '/c/$communityId'
     | '/dm/$peerId'
   fileRoutesByTo: FileRoutesByTo
@@ -117,6 +127,7 @@ export interface FileRouteTypes {
     | '/friends'
     | '/home'
     | '/notifications'
+    | '/settings'
     | '/c/$communityId'
     | '/dm/$peerId'
   id:
@@ -128,6 +139,7 @@ export interface FileRouteTypes {
     | '/_authenticated/friends'
     | '/_authenticated/home'
     | '/_authenticated/notifications'
+    | '/_authenticated/settings'
     | '/_authenticated/c/$communityId'
     | '/_authenticated/dm/$peerId'
   fileRoutesById: FileRoutesById
@@ -189,6 +201,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedNotificationsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/settings': {
+      id: '/_authenticated/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AuthenticatedSettingsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/c/$communityId': {
       id: '/_authenticated/c/$communityId'
       path: '/c/$communityId'
@@ -211,6 +230,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedFriendsRoute: typeof AuthenticatedFriendsRoute
   AuthenticatedHomeRoute: typeof AuthenticatedHomeRoute
   AuthenticatedNotificationsRoute: typeof AuthenticatedNotificationsRoute
+  AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedCCommunityIdRoute: typeof AuthenticatedCCommunityIdRoute
   AuthenticatedDmPeerIdRoute: typeof AuthenticatedDmPeerIdRoute
 }
@@ -220,6 +240,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedFriendsRoute: AuthenticatedFriendsRoute,
   AuthenticatedHomeRoute: AuthenticatedHomeRoute,
   AuthenticatedNotificationsRoute: AuthenticatedNotificationsRoute,
+  AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedCCommunityIdRoute: AuthenticatedCCommunityIdRoute,
   AuthenticatedDmPeerIdRoute: AuthenticatedDmPeerIdRoute,
 }
