@@ -2,12 +2,12 @@ import { useSignedUrl, initials } from "@/lib/media";
 import { cn } from "@/lib/utils";
 
 type Props = {
-  src?: string | null;
-  name?: string | null;
-  size?: "xs" | "sm" | "md" | "lg" | "xl";
-  square?: boolean;
-  online?: boolean;
-  className?: string;
+  src?: string | null | undefined;
+  name?: string | null | undefined;
+  size?: "xs" | "sm" | "md" | "lg" | "xl" | undefined;
+  square?: boolean | undefined;
+  online?: boolean | undefined;
+  className?: string | undefined;
 };
 
 const sizes = {
