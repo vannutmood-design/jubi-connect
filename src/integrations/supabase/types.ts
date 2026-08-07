@@ -19,6 +19,7 @@ export type Database = {
           community_id: string
           created_at: string
           id: string
+          kind: string
           name: string
           position: number
           topic: string | null
@@ -27,6 +28,7 @@ export type Database = {
           community_id: string
           created_at?: string
           id?: string
+          kind?: string
           name: string
           position?: number
           topic?: string | null
@@ -35,6 +37,7 @@ export type Database = {
           community_id?: string
           created_at?: string
           id?: string
+          kind?: string
           name?: string
           position?: number
           topic?: string | null

@@ -1,12 +1,13 @@
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, Ban } from "lucide-react";
+import { ChevronLeft, Ban, Phone } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/AppShell";
 import { ChatView } from "@/components/ChatView";
 import { JubiAvatar } from "@/components/JubiAvatar";
 import { useAuth, type Profile } from "@/lib/auth";
+import { useVoiceCall } from "@/components/voice/VoiceCallProvider";
 
 export const Route = createFileRoute("/_authenticated/dm/$peerId")({
   head: () => ({
@@ -46,26 +47,55 @@ function DMPage() {
 
   return (
     <AppShell>
-      <div className="flex h-full flex-col">
-        <header className="flex items-center gap-3 border-b border-border bg-surface px-3 py-2.5">
-          <Link to="/home" aria-label="Back" className="p-1">
-            <ChevronLeft className="h-5 w-5" />
-          </Link>
-          <JubiAvatar src={peer?.avatar_url} name={peer?.username} size="sm" online={peer?.status === "online"} />
-          <div className="min-w-0 flex-1">
-            <p className="truncate font-semibold leading-tight">
-              {peer?.display_name || peer?.username || "Loading…"}
-            </p>
-            <p className="truncate text-[11px] text-muted-foreground">@{peer?.username}</p>
-          </div>
-          <button onClick={block} aria-label="Block user" className="p-2 text-muted-foreground">
-            <Ban className="h-4 w-4" />
-          </button>
-        </header>
-        <div className="min-h-0 flex-1">
-          <ChatView mode="dm" peerId={peerId} title={peer?.username ?? "them"} />
-        </div>
-      </div>
+      <DMBody peerId={peerId} peer={peer} onBlock={block} />
     </AppShell>
+  );
+}
+
+function DMBody({
+  peerId,
+  peer,
+  onBlock,
+}: {
+  peerId: string;
+  peer: Profile | null | undefined;
+  onBlock: () => void;
+}) {
+  const { startCall } = useVoiceCall();
+
+  return (
+    <div className="flex h-full flex-col">
+      <header className="flex items-center gap-3 border-b border-border bg-surface px-3 py-2.5">
+        <Link to="/home" aria-label="Back" className="p-1">
+          <ChevronLeft className="h-5 w-5" />
+        </Link>
+        <JubiAvatar src={peer?.avatar_url} name={peer?.username} size="sm" online={peer?.status === "online"} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-semibold leading-tight">
+            {peer?.display_name || peer?.username || "Loading…"}
+          </p>
+          <p className="truncate text-[11px] text-muted-foreground">@{peer?.username}</p>
+        </div>
+        <button
+          onClick={() =>
+            startCall({
+              id: peerId,
+              name: peer?.display_name || peer?.username || "Someone",
+              avatar: peer?.avatar_url ?? null,
+            })
+          }
+          aria-label="Start voice call"
+          className="p-2 text-foreground"
+        >
+          <Phone className="h-4 w-4" />
+        </button>
+        <button onClick={onBlock} aria-label="Block user" className="p-2 text-muted-foreground">
+          <Ban className="h-4 w-4" />
+        </button>
+      </header>
+      <div className="min-h-0 flex-1">
+        <ChatView mode="dm" peerId={peerId} title={peer?.username ?? "them"} />
+      </div>
+    </div>
   );
 }
