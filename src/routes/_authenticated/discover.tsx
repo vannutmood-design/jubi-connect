@@ -98,11 +98,9 @@ function DiscoverPage() {
         .select("id")
         .single();
       if (error) throw error;
-      await supabase
-        .from("community_members")
-        .insert({ community_id: data.id, user_id: user!.id, role: "owner" });
-      await supabase.from("channels").insert({ community_id: data.id, name: "general", position: 1 });
       void qc.invalidateQueries({ queryKey: ["my-communities"] });
+      void qc.invalidateQueries({ queryKey: ["my-community-ids", user?.id] });
+      void qc.invalidateQueries({ queryKey: ["public-communities"] });
       void navigate({ to: "/c/$communityId", params: { communityId: data.id } });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not create community");
