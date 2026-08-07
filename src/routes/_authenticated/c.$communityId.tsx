@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { createFileRoute, useParams } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Hash, Plus, Settings2, Users } from "lucide-react";
+import { Hash, Plus, Settings2, Users, Volume2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/AppShell";
 import { ChatView } from "@/components/ChatView";
+import { VoiceRoom } from "@/components/voice/VoiceRoom";
 import { JubiAvatar } from "@/components/JubiAvatar";
 import { useAuth, type Profile } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -31,7 +32,7 @@ export const Route = createFileRoute("/_authenticated/c/$communityId")({
   component: CommunityPage,
 });
 
-type Channel = { id: string; name: string; topic: string | null; position: number };
+type Channel = { id: string; name: string; topic: string | null; position: number; kind: string };
 type Member = { id: string; user_id: string; role: string };
 
 function CommunityPage() {
@@ -40,6 +41,7 @@ function CommunityPage() {
   const qc = useQueryClient();
   const [activeChannel, setActiveChannel] = useState<string | null>(null);
   const [newChannel, setNewChannel] = useState("");
+  const [newChannelKind, setNewChannelKind] = useState<"text" | "voice">("text");
 
   const { data: community } = useQuery({
     queryKey: ["community", communityId],
@@ -89,6 +91,7 @@ function CommunityPage() {
       const { error } = await supabase.from("channels").insert({
         community_id: communityId,
         name,
+        kind: newChannelKind,
         position: (channels?.length ?? 0) + 1,
       });
       if (error) throw error;
@@ -122,7 +125,10 @@ function CommunityPage() {
             <div className="min-w-0 flex-1">
               <h1 className="truncate text-base font-bold leading-tight">{community?.name ?? "…"}</h1>
               <p className="truncate text-[11px] text-muted-foreground">
-                {members?.length ?? 0} members · #{currentChannel?.name ?? "—"}
+                {members?.length ?? 0} members ·{" "}
+                {currentChannel
+                  ? `${currentChannel.kind === "voice" ? "🔊" : "#"}${currentChannel.name}`
+                  : "—"}
               </p>
             </div>
             <Sheet>
@@ -177,10 +183,26 @@ function CommunityPage() {
                   </SheetHeader>
                   <div className="mt-4 space-y-3 px-4">
                     <div className="flex gap-2">
+                      {(["text", "voice"] as const).map((k) => (
+                        <button
+                          key={k}
+                          onClick={() => setNewChannelKind(k)}
+                          className={cn(
+                            "flex-1 rounded-full border px-3 py-1.5 text-xs font-medium capitalize",
+                            newChannelKind === k
+                              ? "border-transparent bg-primary text-primary-foreground"
+                              : "border-border bg-secondary text-secondary-foreground",
+                          )}
+                        >
+                          {k} channel
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
                       <Input
                         value={newChannel}
                         onChange={(e) => setNewChannel(e.target.value)}
-                        placeholder="new-channel"
+                        placeholder={newChannelKind === "voice" ? "lounge" : "new-channel"}
                       />
                       <Button
                         className="rounded-full"
@@ -192,7 +214,10 @@ function CommunityPage() {
                     </div>
                     {(channels ?? []).map((c) => (
                       <div key={c.id} className="flex items-center justify-between rounded-xl border border-border px-3 py-2 text-sm">
-                        <span>#{c.name}</span>
+                        <span className="flex items-center gap-1.5">
+                          {c.kind === "voice" ? <Volume2 className="h-3.5 w-3.5" /> : <Hash className="h-3.5 w-3.5" />}
+                          {c.name}
+                        </span>
                         <Button
                           size="sm"
                           variant="ghost"
@@ -224,7 +249,7 @@ function CommunityPage() {
                     : "border-border bg-secondary text-secondary-foreground",
                 )}
               >
-                <Hash className="h-3 w-3" />
+                {c.kind === "voice" ? <Volume2 className="h-3 w-3" /> : <Hash className="h-3 w-3" />}
                 {c.name}
               </button>
             ))}
@@ -232,7 +257,9 @@ function CommunityPage() {
         </header>
 
         <div className="min-h-0 flex-1">
-          {current ? (
+          {current && currentChannel?.kind === "voice" ? (
+            <VoiceRoom key={current} channelId={current} channelName={currentChannel.name} />
+          ) : current ? (
             <ChatView mode="channel" channelId={current} title={`#${currentChannel?.name ?? ""}`} />
           ) : (
             <p className="p-8 text-center text-sm text-muted-foreground">No channels yet.</p>
