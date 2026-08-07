@@ -297,7 +297,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
         <div className="fixed inset-0 z-[100] flex flex-col items-center justify-between bg-rail/95 px-6 py-14 backdrop-blur-sm">
           <div className="flex flex-col items-center gap-4 pt-10">
             <div className={cn(call.status !== "connected" && "animate-pulse")}>
-              <JubiAvatar src={call.peerAvatar} name={call.peerName} size="lg" />
+              <JubiAvatar src={call.peerAvatar} name={call.peerName} size="xl" />
             </div>
             <p className="font-display text-2xl font-bold text-rail-foreground">{call.peerName}</p>
             <p className="text-sm text-rail-foreground/70">
