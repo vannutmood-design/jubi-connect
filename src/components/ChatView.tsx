@@ -7,6 +7,7 @@ import { useAuth, type Profile } from "@/lib/auth";
 import { JubiAvatar } from "@/components/JubiAvatar";
 import { formatTime, uploadFile, useSignedUrl } from "@/lib/media";
 import { Button } from "@/components/ui/button";
+import { VoiceRecorder } from "@/components/voice/VoiceRecorder";
 import { cn } from "@/lib/utils";
 
 export type ChatMessage = {
@@ -258,6 +259,16 @@ function Attachment({ path, type }: { path: string; type: string | null }) {
   if (!url) return null;
   if (type?.startsWith("image/"))
     return <img src={url} alt="attachment" className="mt-2 max-h-64 rounded-xl border border-border" />;
+  if (type?.startsWith("audio/"))
+    return (
+      <audio
+        controls
+        preload="metadata"
+        src={url}
+        className="mt-2 h-10 w-full max-w-[260px]"
+        aria-label="Voice message"
+      />
+    );
   return (
     <a href={url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-sm underline">
       Download attachment
@@ -299,7 +310,9 @@ function Composer({
       )}
       {file && (
         <div className="mb-2 flex items-center justify-between rounded-lg bg-secondary px-3 py-1.5 text-xs">
-          <span className="truncate">{file.name}</span>
+          <span className="truncate">
+            {file.type.startsWith("audio/") ? "🎙️ Voice message ready to send" : file.name}
+          </span>
           <button onClick={() => setFile(null)} aria-label="Remove file">
             <X className="h-3.5 w-3.5" />
           </button>
@@ -322,6 +335,7 @@ function Composer({
         >
           <ImagePlus className="h-5 w-5" />
         </Button>
+        <VoiceRecorder onRecorded={(f) => setFile(f)} />
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
