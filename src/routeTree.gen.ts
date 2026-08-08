@@ -16,6 +16,7 @@ import { Route as AuthenticatedDiscoverRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedFriendsRouteImport } from './routes/_authenticated/friends'
 import { Route as AuthenticatedHomeRouteImport } from './routes/_authenticated/home'
 import { Route as AuthenticatedNotificationsRouteImport } from './routes/_authenticated/notifications'
+import { Route as AuthenticatedSearchRouteImport } from './routes/_authenticated/search'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedCCommunityIdRouteImport } from './routes/_authenticated/c.$communityId'
 import { Route as AuthenticatedDmPeerIdRouteImport } from './routes/_authenticated/dm.$peerId'
@@ -55,6 +56,11 @@ const AuthenticatedNotificationsRoute =
     path: '/notifications',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedSearchRoute = AuthenticatedSearchRouteImport.update({
+  id: '/search',
+  path: '/search',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -79,6 +85,7 @@ export interface FileRoutesByFullPath {
   '/friends': typeof AuthenticatedFriendsRoute
   '/home': typeof AuthenticatedHomeRoute
   '/notifications': typeof AuthenticatedNotificationsRoute
+  '/search': typeof AuthenticatedSearchRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/c/$communityId': typeof AuthenticatedCCommunityIdRoute
   '/dm/$peerId': typeof AuthenticatedDmPeerIdRoute
@@ -90,6 +97,7 @@ export interface FileRoutesByTo {
   '/friends': typeof AuthenticatedFriendsRoute
   '/home': typeof AuthenticatedHomeRoute
   '/notifications': typeof AuthenticatedNotificationsRoute
+  '/search': typeof AuthenticatedSearchRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/c/$communityId': typeof AuthenticatedCCommunityIdRoute
   '/dm/$peerId': typeof AuthenticatedDmPeerIdRoute
@@ -103,6 +111,7 @@ export interface FileRoutesById {
   '/_authenticated/friends': typeof AuthenticatedFriendsRoute
   '/_authenticated/home': typeof AuthenticatedHomeRoute
   '/_authenticated/notifications': typeof AuthenticatedNotificationsRoute
+  '/_authenticated/search': typeof AuthenticatedSearchRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/c/$communityId': typeof AuthenticatedCCommunityIdRoute
   '/_authenticated/dm/$peerId': typeof AuthenticatedDmPeerIdRoute
@@ -116,6 +125,7 @@ export interface FileRouteTypes {
     | '/friends'
     | '/home'
     | '/notifications'
+    | '/search'
     | '/settings'
     | '/c/$communityId'
     | '/dm/$peerId'
@@ -127,6 +137,7 @@ export interface FileRouteTypes {
     | '/friends'
     | '/home'
     | '/notifications'
+    | '/search'
     | '/settings'
     | '/c/$communityId'
     | '/dm/$peerId'
@@ -139,6 +150,7 @@ export interface FileRouteTypes {
     | '/_authenticated/friends'
     | '/_authenticated/home'
     | '/_authenticated/notifications'
+    | '/_authenticated/search'
     | '/_authenticated/settings'
     | '/_authenticated/c/$communityId'
     | '/_authenticated/dm/$peerId'
@@ -201,6 +213,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedNotificationsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/search': {
+      id: '/_authenticated/search'
+      path: '/search'
+      fullPath: '/search'
+      preLoaderRoute: typeof AuthenticatedSearchRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/settings': {
       id: '/_authenticated/settings'
       path: '/settings'
@@ -230,6 +249,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedFriendsRoute: typeof AuthenticatedFriendsRoute
   AuthenticatedHomeRoute: typeof AuthenticatedHomeRoute
   AuthenticatedNotificationsRoute: typeof AuthenticatedNotificationsRoute
+  AuthenticatedSearchRoute: typeof AuthenticatedSearchRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedCCommunityIdRoute: typeof AuthenticatedCCommunityIdRoute
   AuthenticatedDmPeerIdRoute: typeof AuthenticatedDmPeerIdRoute
@@ -240,6 +260,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedFriendsRoute: AuthenticatedFriendsRoute,
   AuthenticatedHomeRoute: AuthenticatedHomeRoute,
   AuthenticatedNotificationsRoute: AuthenticatedNotificationsRoute,
+  AuthenticatedSearchRoute: AuthenticatedSearchRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedCCommunityIdRoute: AuthenticatedCCommunityIdRoute,
   AuthenticatedDmPeerIdRoute: AuthenticatedDmPeerIdRoute,

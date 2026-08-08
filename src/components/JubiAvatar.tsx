@@ -7,6 +7,7 @@ type Props = {
   size?: "xs" | "sm" | "md" | "lg" | "xl" | undefined;
   square?: boolean | undefined;
   online?: boolean | undefined;
+  status?: string | null | undefined;
   className?: string | undefined;
 };
 
@@ -18,7 +19,15 @@ const sizes = {
   xl: "h-24 w-24 text-2xl",
 };
 
-export function JubiAvatar({ src, name, size = "md", square, online, className }: Props) {
+const dot: Record<string, string> = {
+  online: "bg-online",
+  idle: "bg-brand",
+  dnd: "bg-destructive",
+  offline: "bg-muted-foreground",
+};
+
+export function JubiAvatar({ src, name, size = "md", square, online, status, className }: Props) {
+  const state = status ?? (online === undefined ? undefined : online ? "online" : "offline");
   const url = useSignedUrl(src);
   return (
     <span className={cn("relative inline-flex shrink-0", className)}>
@@ -35,11 +44,11 @@ export function JubiAvatar({ src, name, size = "md", square, online, className }
           initials(name)
         )}
       </span>
-      {online !== undefined && (
+      {state !== undefined && (
         <span
           className={cn(
             "absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background",
-            online ? "bg-online" : "bg-muted-foreground",
+            dot[state] ?? "bg-muted-foreground",
           )}
         />
       )}

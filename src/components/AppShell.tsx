@@ -1,9 +1,10 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, Compass, MessageCircle, Plus, Settings, Users } from "lucide-react";
+import { Bell, Compass, MessageCircle, Plus, Search, Settings, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
+import { usePresence } from "@/lib/presence";
 import { JubiAvatar } from "@/components/JubiAvatar";
 import { VoiceCallProvider } from "@/components/voice/VoiceCallProvider";
 import { cn } from "@/lib/utils";
@@ -49,11 +50,14 @@ const navItems = [
   { to: "/home", icon: MessageCircle, label: "Chats" },
   { to: "/friends", icon: Users, label: "Friends" },
   { to: "/discover", icon: Compass, label: "Discover" },
+  { to: "/search", icon: Search, label: "Search" },
   { to: "/notifications", icon: Bell, label: "Alerts" },
   { to: "/settings", icon: Settings, label: "You" },
 ];
 
 export function AppShell({ children, rail = true }: { children: ReactNode; rail?: boolean }) {
+  const { user } = useAuth();
+  usePresence(user?.id);
   const { data: communities } = useMyCommunities();
   const { data: unread } = useUnreadNotifications();
   const path = useRouterState({ select: (s) => s.location.pathname });
