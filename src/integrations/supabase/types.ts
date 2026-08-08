@@ -82,6 +82,41 @@ export type Database = {
         }
         Relationships: []
       }
+      community_bans: {
+        Row: {
+          banned_by: string
+          community_id: string
+          created_at: string
+          id: string
+          reason: string | null
+          user_id: string
+        }
+        Insert: {
+          banned_by: string
+          community_id: string
+          created_at?: string
+          id?: string
+          reason?: string | null
+          user_id: string
+        }
+        Update: {
+          banned_by?: string
+          community_id?: string
+          created_at?: string
+          id?: string
+          reason?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "community_bans_community_id_fkey"
+            columns: ["community_id"]
+            isOneToOne: false
+            referencedRelation: "communities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       community_members: {
         Row: {
           community_id: string
@@ -370,6 +405,15 @@ export type Database = {
         Args: { _channel: string; _user: string }
         Returns: boolean
       }
+      can_notify: {
+        Args: { _sender: string; _target: string }
+        Returns: boolean
+      }
+      is_banned: {
+        Args: { _community: string; _user: string }
+        Returns: boolean
+      }
+      is_blocked: { Args: { _a: string; _b: string }; Returns: boolean }
       is_community_admin: {
         Args: { _community: string; _user: string }
         Returns: boolean
@@ -378,6 +422,8 @@ export type Database = {
         Args: { _community: string; _user: string }
         Returns: boolean
       }
+      show_limit: { Args: never; Returns: number }
+      show_trgm: { Args: { "": string }; Returns: string[] }
     }
     Enums: {
       [_ in never]: never
