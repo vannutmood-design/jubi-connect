@@ -260,7 +260,7 @@ function CommunityPage() {
           {current && currentChannel?.kind === "voice" ? (
             <VoiceRoom key={current} channelId={current} channelName={currentChannel.name} />
           ) : current ? (
-            <ChatView mode="channel" channelId={current} title={`#${currentChannel?.name ?? ""}`} />
+            <ChatView mode="channel" channelId={current} title={`#${currentChannel?.name ?? ""}`} canModerate={isAdmin} />
           ) : (
             <p className="p-8 text-center text-sm text-muted-foreground">No channels yet.</p>
           )}

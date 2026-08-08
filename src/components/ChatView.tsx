@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CornerUpLeft, ImagePlus, SendHorizonal, Smile, X } from "lucide-react";
+import { CornerUpLeft, ImagePlus, SendHorizonal, Smile, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth, type Profile } from "@/lib/auth";
@@ -22,9 +22,10 @@ export type ChatMessage = {
 
 const EMOJIS = ["👍", "❤️", "😂", "🔥", "🎉", "😮"];
 
-type Props =
+type Props = (
   | { mode: "channel"; channelId: string; title: string }
-  | { mode: "dm"; peerId: string; title: string };
+  | { mode: "dm"; peerId: string; title: string }
+) & { canModerate?: boolean };
 
 export function ChatView(props: Props) {
   const { user } = useAuth();
@@ -164,6 +165,13 @@ export function ChatView(props: Props) {
     void qc.invalidateQueries({ queryKey });
   };
 
+  const removeMessage = async (id: string) => {
+    const table = props.mode === "channel" ? "messages" : "direct_messages";
+    const { error } = await supabase.from(table).delete().eq("id", id);
+    if (error) toast.error(error.message);
+    else void qc.invalidateQueries({ queryKey });
+  };
+
   const byId = useMemo(
     () => Object.fromEntries((data?.messages ?? []).map((m) => [m.id, m])),
     [data?.messages],
@@ -216,6 +224,15 @@ export function ChatView(props: Props) {
                       {emoji} {count}
                     </button>
                   ))}
+                  {(mine || props.canModerate) && (
+                    <button
+                      onClick={() => void removeMessage(m.id)}
+                      className="rounded-full p-1 text-muted-foreground hover:text-destructive"
+                      aria-label="Delete message"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                   <button
                     onClick={() => setReply(m)}
                     className="rounded-full p-1 text-muted-foreground hover:text-foreground"
