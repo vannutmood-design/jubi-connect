@@ -18,6 +18,7 @@ import {
   RTC_CONFIG,
   formatDuration,
   getMicStream,
+  getRtcConfig,
   inboxTopic,
   joinChannel,
   stopStream,
@@ -25,7 +26,7 @@ import {
 } from "@/lib/voice";
 import { cn } from "@/lib/utils";
 
-type CallStatus = "outgoing" | "incoming" | "connected";
+type CallStatus = "outgoing" | "incoming" | "connecting" | "connected" | "reconnecting";
 
 type ActiveCall = {
   peerId: string;
@@ -40,6 +41,35 @@ type VoiceCallValue = {
 };
 
 const VoiceCallContext = createContext<VoiceCallValue>({ call: null, startCall: () => {} });
+
+// A single shared inbox subscription per user. Two channels on the same realtime
+// topic fight over the same server-side join, so remounts (StrictMode, route
+// changes) must reuse one channel instead of joining twice.
+let inbox: {
+  userId: string;
+  promise: Promise<RealtimeChannel>;
+  count: number;
+} | null = null;
+
+function acquireInbox(userId: string, setup: (ch: RealtimeChannel) => void) {
+  if (!inbox || inbox.userId !== userId) {
+    if (inbox) {
+      const stale = inbox;
+      void stale.promise.then((ch) => supabase.removeChannel(ch)).catch(() => undefined);
+    }
+    inbox = { userId, promise: joinChannel(inboxTopic(userId), setup), count: 0 };
+  }
+  inbox.count += 1;
+  const current = inbox;
+  return () => {
+    current.count -= 1;
+    setTimeout(() => {
+      if (current.count > 0 || inbox !== current) return;
+      inbox = null;
+      void current.promise.then((ch) => supabase.removeChannel(ch)).catch(() => undefined);
+    }, 800);
+  };
+}
 
 export const useVoiceCall = () => useContext(VoiceCallContext);
 
@@ -57,10 +87,14 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [muted, setMuted] = useState(false);
   const [seconds, setSeconds] = useState(0);
+  const [playToken, setPlayToken] = useState(0);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localRef = useRef<MediaStream | null>(null);
-  const outRef = useRef<RealtimeChannel | null>(null);
+  const remoteRef = useRef<MediaStream | null>(null);
+  // Single in-flight promise per peer topic so rapid ICE candidates never race
+  // into creating (and sending on) multiple unsubscribed channels.
+  const outRef = useRef<{ topic: string; channel: Promise<RealtimeChannel> } | null>(null);
   const pendingOffer = useRef<RTCSessionDescriptionInit | null>(null);
   const iceQueue = useRef<RTCIceCandidateInit[]>([]);
   const callRef = useRef<ActiveCall | null>(null);
@@ -69,13 +103,24 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
     callRef.current = call;
   }, [call]);
 
+  const outChannel = useCallback((peerId: string) => {
+    const topic = inboxTopic(peerId);
+    if (!outRef.current || outRef.current.topic !== topic) {
+      outRef.current = { topic, channel: joinChannel(topic) };
+    }
+    return outRef.current.channel;
+  }, []);
+
   const signal = useCallback(
     async (peerId: string, event: string, payload: Record<string, unknown> = {}) => {
       if (!user) return;
-      if (!outRef.current) {
-        outRef.current = await joinChannel(inboxTopic(peerId));
+      let channel: RealtimeChannel;
+      try {
+        channel = await outChannel(peerId);
+      } catch {
+        return;
       }
-      await outRef.current.send({
+      await channel.send({
         type: "broadcast",
         event,
         payload: {
@@ -86,54 +131,91 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
         },
       });
     },
-    [user, profile],
+    [user, profile, outChannel],
   );
 
   const teardown = useCallback(() => {
-    pcRef.current?.getSenders().forEach((s) => s.track?.stop());
-    pcRef.current?.close();
+    const pc = pcRef.current;
+    if (pc) {
+      pc.onicecandidate = null;
+      pc.ontrack = null;
+      pc.onconnectionstatechange = null;
+      pc.oniceconnectionstatechange = null;
+      pc.getSenders().forEach((s) => s.track?.stop());
+      pc.close();
+    }
     pcRef.current = null;
     stopStream(localRef.current);
     localRef.current = null;
-    if (outRef.current) void supabase.removeChannel(outRef.current);
+    const out = outRef.current;
+    if (out) void out.channel.then((ch) => supabase.removeChannel(ch)).catch(() => undefined);
     outRef.current = null;
     pendingOffer.current = null;
     iceQueue.current = [];
+    remoteRef.current?.getTracks().forEach((t) => t.stop());
+    remoteRef.current = null;
     setRemoteStream(null);
     setMuted(false);
     setSeconds(0);
     setCall(null);
+    callRef.current = null;
   }, []);
 
   const endCall = useCallback(
     (notify = true, message?: string) => {
       const active = callRef.current;
+      if (!active && !pcRef.current) return;
       if (active && notify) void signal(active.peerId, "voice-hangup");
       if (message) toast.info(message);
       // give the broadcast a tick to flush before the channel is torn down
       setTimeout(teardown, 120);
       setCall(null);
+      callRef.current = null;
     },
     [signal, teardown],
   );
 
   const buildPeerConnection = useCallback(
     async (peerId: string) => {
+      // Join the signalling channel BEFORE any candidate can be produced,
+      // otherwise early trickled candidates are sent on an unsubscribed
+      // channel and silently dropped (call connects, but no audio).
+      await outChannel(peerId).catch(() => undefined);
       const stream = await getMicStream();
       localRef.current = stream;
-      const pc = new RTCPeerConnection(RTC_CONFIG);
+      const config = await getRtcConfig().catch(() => RTC_CONFIG);
+      const pc = new RTCPeerConnection(config);
+
+      const remote = new MediaStream();
+      remoteRef.current = remote;
+      setRemoteStream(remote);
+
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
       pc.onicecandidate = (e) => {
         if (e.candidate) void signal(peerId, "voice-ice", { candidate: e.candidate.toJSON() });
       };
-      pc.ontrack = (e) => setRemoteStream(e.streams[0] ?? null);
+      pc.ontrack = (e) => {
+        const target = remoteRef.current;
+        if (!target) return;
+        if (!target.getTracks().includes(e.track)) target.addTrack(e.track);
+        setPlayToken((t) => t + 1);
+      };
       pc.onconnectionstatechange = () => {
-        if (pc.connectionState === "failed") endCall(false, "Call connection lost");
+        if (pcRef.current !== pc) return;
+        const active = callRef.current;
+        if (pc.connectionState === "connected") {
+          setPlayToken((t) => t + 1);
+          if (active) setCall({ ...active, status: "connected" });
+        } else if (pc.connectionState === "disconnected") {
+          if (active) setCall({ ...active, status: "reconnecting" });
+        } else if (pc.connectionState === "failed") {
+          endCall(true, "Call connection lost");
+        }
       };
       pcRef.current = pc;
       return pc;
     },
-    [signal, endCall],
+    [signal, endCall, outChannel],
   );
 
   const flushIce = useCallback(async () => {
@@ -153,7 +235,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   const startCall = useCallback(
     (peer: { id: string; name: string; avatar?: string | null }) => {
       if (!user) return;
-      if (callRef.current) {
+      if (callRef.current || pcRef.current) {
         toast.error("You're already on a call");
         return;
       }
@@ -190,16 +272,24 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   const acceptCall = useCallback(() => {
     const active = callRef.current;
     const offer = pendingOffer.current;
-    if (!active || !offer) return;
+    if (!active || !offer || pcRef.current) return;
+    const connecting: ActiveCall = { ...active, status: "connecting" };
+    callRef.current = connecting;
+    setCall(connecting);
+    setPlayToken((t) => t + 1);
     void (async () => {
       try {
         const pc = await buildPeerConnection(active.peerId);
         await pc.setRemoteDescription(offer);
+        pendingOffer.current = null;
         await flushIce();
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         await signal(active.peerId, "voice-accept", { sdp: answer });
-        setCall({ ...active, status: "connected" });
+        const next: ActiveCall = { ...active, status: "connecting" };
+        callRef.current = next;
+        setCall(next);
+        setPlayToken((t) => t + 1);
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Could not join the call");
         endCall(true);
@@ -212,19 +302,25 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
     if (active) void signal(active.peerId, "voice-decline");
     setTimeout(teardown, 120);
     setCall(null);
+    callRef.current = null;
   }, [signal, teardown]);
 
   // Personal inbox: everything addressed to me arrives here.
+  // Handlers live in a ref so identity churn (profile loading, call state) can
+  // never tear down and re-create the subscription mid-call.
+  const handlers = useRef({ signal, flushIce, endCall });
   useEffect(() => {
-    if (!user) return;
-    let channel: RealtimeChannel | null = null;
-    let cancelled = false;
+    handlers.current = { signal, flushIce, endCall };
+  }, [signal, flushIce, endCall]);
 
-    void joinChannel(inboxTopic(user.id), (ch) => {
+  const userId = user?.id;
+  useEffect(() => {
+    if (!userId) return;
+    const release = acquireInbox(userId, (ch) => {
       ch.on("broadcast", { event: "voice-invite" }, ({ payload }) => {
         const p = payload as SignalPayload;
-        if (callRef.current) {
-          void signal(p.from, "voice-busy");
+        if (callRef.current || pcRef.current) {
+          void handlers.current.signal(p.from, "voice-busy");
           return;
         }
         pendingOffer.current = p.sdp ?? null;
@@ -244,10 +340,15 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
         void (async () => {
           const pc = pcRef.current;
           if (!pc || !p.sdp) return;
+          if (pc.signalingState !== "have-local-offer") return;
           await pc.setRemoteDescription(p.sdp);
-          await flushIce();
+          await handlers.current.flushIce();
           const active = callRef.current;
-          if (active) setCall({ ...active, status: "connected" });
+          if (active && active.status === "outgoing") {
+            const next: ActiveCall = { ...active, status: "connecting" };
+            callRef.current = next;
+            setCall(next);
+          }
         })();
       });
 
@@ -259,25 +360,22 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
         else iceQueue.current.push(p.candidate);
       });
 
-      ch.on("broadcast", { event: "voice-decline" }, () => endCall(false, "Call declined"));
-      ch.on("broadcast", { event: "voice-busy" }, () => endCall(false, "They're on another call"));
-      ch.on("broadcast", { event: "voice-hangup" }, () => endCall(false, "Call ended"));
-    })
-      .then((ch) => {
-        if (cancelled) void supabase.removeChannel(ch);
-        else channel = ch;
-      })
-      .catch(() => undefined);
-
-    return () => {
-      cancelled = true;
-      if (channel) void supabase.removeChannel(channel);
-    };
-  }, [user, signal, flushIce, endCall]);
+      ch.on("broadcast", { event: "voice-decline" }, () =>
+        handlers.current.endCall(false, "Call declined"),
+      );
+      ch.on("broadcast", { event: "voice-busy" }, () =>
+        handlers.current.endCall(false, "They're on another call"),
+      );
+      ch.on("broadcast", { event: "voice-hangup" }, () =>
+        handlers.current.endCall(false, "Call ended"),
+      );
+    });
+    return release;
+  }, [userId]);
 
   // Call timer
   useEffect(() => {
-    if (call?.status !== "connected") return;
+    if (call?.status !== "connected" && call?.status !== "reconnecting") return;
     const id = setInterval(() => setSeconds((s) => s + 1), 1000);
     return () => clearInterval(id);
   }, [call?.status]);
@@ -292,7 +390,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   return (
     <VoiceCallContext.Provider value={{ call, startCall }}>
       {children}
-      <AudioSink stream={remoteStream} />
+      <AudioSink stream={remoteStream} playToken={playToken} />
       {call && (
         <div className="fixed inset-0 z-[100] flex flex-col items-center justify-between bg-rail/95 px-6 py-14 backdrop-blur-sm">
           <div className="flex flex-col items-center gap-4 pt-10">
@@ -303,7 +401,9 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
             <p className="text-sm text-rail-foreground/70">
               {call.status === "outgoing" && "Calling…"}
               {call.status === "incoming" && "Incoming voice call"}
+              {call.status === "connecting" && "Connecting…"}
               {call.status === "connected" && formatDuration(seconds)}
+              {call.status === "reconnecting" && `Reconnecting… ${formatDuration(seconds)}`}
             </p>
           </div>
 
