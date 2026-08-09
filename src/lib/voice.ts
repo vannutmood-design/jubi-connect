@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
+import { getIceServers } from "@/lib/ice.functions";
 
 /** Public STUN servers — enough for peer-to-peer audio on most networks. */
 export const RTC_CONFIG: RTCConfiguration = {
@@ -7,6 +8,25 @@ export const RTC_CONFIG: RTCConfiguration = {
     { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
   ],
 };
+
+let iceCache: Promise<RTCConfiguration> | null = null;
+
+/**
+ * ICE configuration including TURN relay when the server has it configured.
+ * Falls back to public STUN only if the lookup fails.
+ */
+export function getRtcConfig(): Promise<RTCConfiguration> {
+  if (!iceCache) {
+    iceCache = getIceServers()
+      .then((r) => ({
+        iceServers: r.iceServers,
+        iceCandidatePoolSize: 4,
+        bundlePolicy: "max-bundle" as const,
+      }))
+      .catch(() => RTC_CONFIG);
+  }
+  return iceCache;
+}
 
 export async function getMicStream(): Promise<MediaStream> {
   if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
