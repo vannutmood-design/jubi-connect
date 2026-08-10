@@ -409,6 +409,14 @@ export type Database = {
         Args: { _sender: string; _target: string }
         Returns: boolean
       }
+      can_read_jubi_object: {
+        Args: { _name: string; _user: string }
+        Returns: boolean
+      }
+      can_view_profile: {
+        Args: { _target: string; _viewer: string }
+        Returns: boolean
+      }
       is_banned: {
         Args: { _community: string; _user: string }
         Returns: boolean
@@ -421,6 +429,15 @@ export type Database = {
       is_member: {
         Args: { _community: string; _user: string }
         Returns: boolean
+      }
+      search_profiles: {
+        Args: { _q: string }
+        Returns: {
+          avatar_url: string
+          display_name: string
+          id: string
+          username: string
+        }[]
       }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
