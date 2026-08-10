@@ -49,7 +49,7 @@ export function AudioSink({
     if (!el) return;
     if (el.srcObject !== stream) el.srcObject = stream;
     el.autoplay = true;
-    el.playsInline = true;
+    el.setAttribute("playsinline", "true");
     el.muted = Boolean(muted);
     el.volume = 1;
     report();

@@ -380,7 +380,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
     const audio = audioRef.current;
     if (audio) {
       audio.autoplay = true;
-      audio.playsInline = true;
+      audio.setAttribute("playsinline", "true");
       audio.muted = false;
       audio.volume = 1;
       void audio.play().catch((error) => {
