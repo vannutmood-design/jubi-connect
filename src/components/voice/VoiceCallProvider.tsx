@@ -295,9 +295,23 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
         }
       };
       pc.ontrack = (e) => {
-        const target = remoteRef.current;
-        if (!target) return;
-        if (!target.getTracks().includes(e.track)) target.addTrack(e.track);
+        // Preserve the browser-provided remote stream whenever available.
+        // Reconstructing it from a track can lose the negotiated stream/track
+        // association on WebKit even while RTP is flowing.
+        const negotiatedStream = e.streams[0];
+        let target = remoteRef.current;
+        if (negotiatedStream && target !== negotiatedStream) {
+          target = negotiatedStream;
+          remoteRef.current = negotiatedStream;
+          setRemoteStream(negotiatedStream);
+        } else if (target && !target.getTracks().includes(e.track)) {
+          target.addTrack(e.track);
+        }
+        if (!target) {
+          target = new MediaStream([e.track]);
+          remoteRef.current = target;
+          setRemoteStream(target);
+        }
         console.info("[JUBI voice] remote track received", {
           kind: e.track.kind,
           readyState: e.track.readyState,
