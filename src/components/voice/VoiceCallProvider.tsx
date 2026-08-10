@@ -158,6 +158,20 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
     callRef.current = call;
   }, [call]);
 
+  const unlockRemoteAudio = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.autoplay = true;
+    audio.setAttribute("playsinline", "true");
+    audio.muted = false;
+    audio.volume = 1;
+    void audio.play().catch((error) => {
+      // A remote stream may not be attached yet. AudioSink retries when the
+      // track arrives, while preserving the element unlocked by this gesture.
+      console.info("[JUBI voice] playback unlock pending remote media", error);
+    });
+  }, []);
+
   const outChannel = useCallback((peerId: string) => {
     const topic = inboxTopic(peerId);
     if (!outRef.current || outRef.current.topic !== topic) {
@@ -291,6 +305,13 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
           muted: e.track.muted,
           streamCount: e.streams.length,
         });
+        e.track.onunmute = () => {
+          console.info("[JUBI voice] remote track unmuted", { readyState: e.track.readyState });
+          setPlayToken((t) => t + 1);
+        };
+        e.track.onended = () => {
+          console.info("[JUBI voice] remote track ended");
+        };
         setPlayToken((t) => t + 1);
       };
       pc.onconnectionstatechange = () => {
@@ -340,6 +361,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
       };
       setCall(next);
       callRef.current = next;
+      unlockRemoteAudio();
       void (async () => {
         try {
           const pc = await buildPeerConnection(peer.id);
@@ -363,7 +385,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
         }
       })();
     },
-    [user, profile, buildPeerConnection, signal, teardown],
+    [user, profile, buildPeerConnection, signal, teardown, unlockRemoteAudio],
   );
 
   const acceptCall = useCallback(() => {
@@ -377,16 +399,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
     // Run in the Accept click gesture. The same persistent element is retained
     // for the whole call so browser autoplay permission and srcObject survive
     // subsequent React renders and track events.
-    const audio = audioRef.current;
-    if (audio) {
-      audio.autoplay = true;
-      audio.setAttribute("playsinline", "true");
-      audio.muted = false;
-      audio.volume = 1;
-      void audio.play().catch((error) => {
-        console.info("[JUBI voice] initial playback unlock pending remote media", error);
-      });
-    }
+    unlockRemoteAudio();
     void (async () => {
       try {
         const pc = await buildPeerConnection(active.peerId);
@@ -409,7 +422,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
         endCall(true);
       }
     })();
-  }, [buildPeerConnection, flushIce, signal, endCall]);
+  }, [buildPeerConnection, flushIce, signal, endCall, unlockRemoteAudio]);
 
   const declineCall = useCallback(() => {
     const active = callRef.current;
@@ -471,7 +484,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
         if (!p.candidate) return;
         candidateCounts.current.received += 1;
         console.info("[JUBI voice] remote ICE candidate", {
-          type: p.candidate.candidate?.split(" ")[7] ?? "unknown",
+          type: p.candidate.candidate?.split(" ")[8] ?? "unknown",
         });
         const pc = pcRef.current;
         if (pc?.remoteDescription) void pc.addIceCandidate(p.candidate).catch(() => undefined);
