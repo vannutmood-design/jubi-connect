@@ -10,6 +10,7 @@ export const RTC_CONFIG: RTCConfiguration = {
 };
 
 let iceCache: Promise<RTCConfiguration> | null = null;
+let turnAvailable = false;
 
 /**
  * ICE configuration including TURN relay when the server has it configured.
@@ -18,14 +19,24 @@ let iceCache: Promise<RTCConfiguration> | null = null;
 export function getRtcConfig(): Promise<RTCConfiguration> {
   if (!iceCache) {
     iceCache = getIceServers()
-      .then((r) => ({
-        iceServers: r.iceServers,
-        iceCandidatePoolSize: 4,
-        bundlePolicy: "max-bundle" as const,
-      }))
-      .catch(() => RTC_CONFIG);
+      .then((r) => {
+        turnAvailable = r.hasTurn;
+        return {
+          iceServers: r.iceServers,
+          iceCandidatePoolSize: 4,
+          bundlePolicy: "max-bundle" as const,
+        };
+      })
+      .catch(() => {
+        turnAvailable = false;
+        return RTC_CONFIG;
+      });
   }
   return iceCache;
+}
+
+export function hasTurnRelay() {
+  return turnAvailable;
 }
 
 export async function getMicStream(): Promise<MediaStream> {

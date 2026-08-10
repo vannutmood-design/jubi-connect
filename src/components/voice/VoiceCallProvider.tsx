@@ -13,12 +13,13 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { JubiAvatar } from "@/components/JubiAvatar";
-import { AudioSink } from "@/components/voice/AudioSink";
+import { AudioSink, type AudioPlaybackState } from "@/components/voice/AudioSink";
 import {
   RTC_CONFIG,
   formatDuration,
   getMicStream,
   getRtcConfig,
+  hasTurnRelay,
   inboxTopic,
   joinChannel,
   stopStream,
@@ -81,6 +82,55 @@ type SignalPayload = {
   candidate?: RTCIceCandidateInit;
 };
 
+type VoiceDiagnostics = {
+  connection: string;
+  ice: string;
+  gathering: string;
+  signaling: string;
+  localDescription: string;
+  remoteDescription: string;
+  localAudio: string;
+  remoteAudio: string;
+  outbound: string;
+  inbound: string;
+  selectedCandidate: string;
+  playback: string;
+  candidates: string;
+  turn: string;
+};
+
+const EMPTY_DIAGNOSTICS: VoiceDiagnostics = {
+  connection: "new",
+  ice: "new",
+  gathering: "new",
+  signaling: "stable",
+  localDescription: "none",
+  remoteDescription: "none",
+  localAudio: "0 tracks",
+  remoteAudio: "0 tracks",
+  outbound: "0 packets / 0 bytes (Δ0)",
+  inbound: "0 packets / 0 bytes (Δ0)",
+  selectedCandidate: "none",
+  playback: "no remote stream",
+  candidates: "sent 0 / received 0",
+  turn: "checking…",
+};
+
+function trackSummary(tracks: MediaStreamTrack[]) {
+  if (!tracks.length) return "0 tracks";
+  return tracks
+    .map((track) => `${track.kind}:${track.readyState}, enabled=${track.enabled}, muted=${track.muted}`)
+    .join("; ");
+}
+
+function assertAudioSdp(description: RTCSessionDescriptionInit, side: "offer" | "answer") {
+  const sdp = description.sdp ?? "";
+  const audioLine = sdp.split("\n").find((line) => line.startsWith("m=audio"));
+  const rejected = /^m=audio 0\s/.test(audioLine ?? "");
+  console.info(`[JUBI voice] ${side} SDP audio`, { audioLine, rejected });
+  if (!audioLine || rejected) throw new Error(`${side} rejected the audio media section`);
+}
+
 export function VoiceCallProvider({ children }: { children: ReactNode }) {
   const { user, profile } = useAuth();
   const [call, setCall] = useState<ActiveCall | null>(null);
@@ -88,8 +138,11 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   const [muted, setMuted] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [playToken, setPlayToken] = useState(0);
+  const [diagnostics, setDiagnostics] = useState<VoiceDiagnostics>(EMPTY_DIAGNOSTICS);
+  const [playbackState, setPlaybackState] = useState<AudioPlaybackState | null>(null);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const localRef = useRef<MediaStream | null>(null);
   const remoteRef = useRef<MediaStream | null>(null);
   // Single in-flight promise per peer topic so rapid ICE candidates never race
@@ -98,6 +151,8 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   const pendingOffer = useRef<RTCSessionDescriptionInit | null>(null);
   const iceQueue = useRef<RTCIceCandidateInit[]>([]);
   const callRef = useRef<ActiveCall | null>(null);
+  const candidateCounts = useRef({ sent: 0, received: 0 });
+  const previousPackets = useRef({ outbound: 0, inbound: 0 });
 
   useEffect(() => {
     callRef.current = call;
@@ -157,6 +212,10 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
     setRemoteStream(null);
     setMuted(false);
     setSeconds(0);
+    setDiagnostics(EMPTY_DIAGNOSTICS);
+    setPlaybackState(null);
+    candidateCounts.current = { sent: 0, received: 0 };
+    previousPackets.current = { outbound: 0, inbound: 0 };
     setCall(null);
     callRef.current = null;
   }, []);
@@ -182,22 +241,56 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
       // channel and silently dropped (call connects, but no audio).
       await outChannel(peerId).catch(() => undefined);
       const stream = await getMicStream();
+      const microphone = stream.getAudioTracks()[0];
+      console.info("[JUBI voice] getUserMedia audio track", microphone ? {
+        kind: microphone.kind,
+        readyState: microphone.readyState,
+        enabled: microphone.enabled,
+        muted: microphone.muted,
+      } : { missing: true });
+      if (!microphone || microphone.readyState !== "live") {
+        stopStream(stream);
+        throw new Error("Microphone did not provide a live audio track");
+      }
       localRef.current = stream;
       const config = await getRtcConfig().catch(() => RTC_CONFIG);
+      console.info("[JUBI voice] ICE configuration", {
+        serverCount: config.iceServers?.length ?? 0,
+        turnConfigured: hasTurnRelay(),
+      });
       const pc = new RTCPeerConnection(config);
 
       const remote = new MediaStream();
       remoteRef.current = remote;
       setRemoteStream(remote);
 
-      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+      stream.getAudioTracks().forEach((track) => pc.addTrack(track, stream));
+      if (!pc.getSenders().some((sender) => sender.track?.kind === "audio")) {
+        pc.close();
+        stopStream(stream);
+        throw new Error("Microphone track could not be attached to the call");
+      }
       pc.onicecandidate = (e) => {
-        if (e.candidate) void signal(peerId, "voice-ice", { candidate: e.candidate.toJSON() });
+        if (e.candidate) {
+          candidateCounts.current.sent += 1;
+          console.info("[JUBI voice] local ICE candidate", {
+            type: e.candidate.type,
+            protocol: e.candidate.protocol,
+          });
+          void signal(peerId, "voice-ice", { candidate: e.candidate.toJSON() });
+        }
       };
       pc.ontrack = (e) => {
         const target = remoteRef.current;
         if (!target) return;
         if (!target.getTracks().includes(e.track)) target.addTrack(e.track);
+        console.info("[JUBI voice] remote track received", {
+          kind: e.track.kind,
+          readyState: e.track.readyState,
+          enabled: e.track.enabled,
+          muted: e.track.muted,
+          streamCount: e.streams.length,
+        });
         setPlayToken((t) => t + 1);
       };
       pc.onconnectionstatechange = () => {
@@ -250,9 +343,13 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
       void (async () => {
         try {
           const pc = await buildPeerConnection(peer.id);
+          if (!pc.getSenders().some((sender) => sender.track?.kind === "audio")) {
+            throw new Error("Microphone was not attached before creating the offer");
+          }
           const offer = await pc.createOffer();
+          assertAudioSdp(offer, "offer");
           await pc.setLocalDescription(offer);
-          await signal(peer.id, "voice-invite", { sdp: offer });
+          await signal(peer.id, "voice-invite", { sdp: pc.localDescription ?? offer });
           await supabase.from("notifications").insert({
             user_id: peer.id,
             type: "call",
@@ -277,15 +374,32 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
     callRef.current = connecting;
     setCall(connecting);
     setPlayToken((t) => t + 1);
+    // Run in the Accept click gesture. The same persistent element is retained
+    // for the whole call so browser autoplay permission and srcObject survive
+    // subsequent React renders and track events.
+    const audio = audioRef.current;
+    if (audio) {
+      audio.autoplay = true;
+      audio.playsInline = true;
+      audio.muted = false;
+      audio.volume = 1;
+      void audio.play().catch((error) => {
+        console.info("[JUBI voice] initial playback unlock pending remote media", error);
+      });
+    }
     void (async () => {
       try {
         const pc = await buildPeerConnection(active.peerId);
         await pc.setRemoteDescription(offer);
         pendingOffer.current = null;
         await flushIce();
+        if (!pc.getSenders().some((sender) => sender.track?.kind === "audio")) {
+          throw new Error("Microphone was not attached before creating the answer");
+        }
         const answer = await pc.createAnswer();
+        assertAudioSdp(answer, "answer");
         await pc.setLocalDescription(answer);
-        await signal(active.peerId, "voice-accept", { sdp: answer });
+        await signal(active.peerId, "voice-accept", { sdp: pc.localDescription ?? answer });
         const next: ActiveCall = { ...active, status: "connecting" };
         callRef.current = next;
         setCall(next);
@@ -355,6 +469,10 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
       ch.on("broadcast", { event: "voice-ice" }, ({ payload }) => {
         const p = payload as SignalPayload;
         if (!p.candidate) return;
+        candidateCounts.current.received += 1;
+        console.info("[JUBI voice] remote ICE candidate", {
+          type: p.candidate.candidate?.split(" ")[7] ?? "unknown",
+        });
         const pc = pcRef.current;
         if (pc?.remoteDescription) void pc.addIceCandidate(p.candidate).catch(() => undefined);
         else iceQueue.current.push(p.candidate);
@@ -380,6 +498,93 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(id);
   }, [call?.status]);
 
+  useEffect(() => {
+    if (!call || call.status === "incoming") return;
+    let cancelled = false;
+    const inspect = async () => {
+      const pc = pcRef.current;
+      if (!pc || cancelled) return;
+      let outboundPackets = 0;
+      let outboundBytes = 0;
+      let inboundPackets = 0;
+      let inboundBytes = 0;
+      let packetsLost = 0;
+      let jitter = 0;
+      let outboundCodec = "none";
+      let inboundCodec = "none";
+      let selectedCandidate = "none";
+      try {
+        const stats = await pc.getStats();
+        let selectedPairId: string | undefined;
+        stats.forEach((report) => {
+          if (report.type === "transport" && report.selectedCandidatePairId) {
+            selectedPairId = report.selectedCandidatePairId as string;
+          }
+          if (report.type === "outbound-rtp" && !report.isRemote && (report.kind === "audio" || report.mediaType === "audio")) {
+            outboundPackets += Number(report.packetsSent ?? 0);
+            outboundBytes += Number(report.bytesSent ?? 0);
+            outboundCodec = String(report.codecId ?? "none");
+          }
+          if (report.type === "inbound-rtp" && !report.isRemote && (report.kind === "audio" || report.mediaType === "audio")) {
+            inboundPackets += Number(report.packetsReceived ?? 0);
+            inboundBytes += Number(report.bytesReceived ?? 0);
+            packetsLost += Number(report.packetsLost ?? 0);
+            jitter = Math.max(jitter, Number(report.jitter ?? 0));
+            inboundCodec = String(report.codecId ?? "none");
+          }
+        });
+        let pair = selectedPairId ? stats.get(selectedPairId) : undefined;
+        if (!pair) {
+          stats.forEach((report) => {
+            if (!pair && report.type === "candidate-pair" && report.state === "succeeded" && report.nominated) pair = report;
+          });
+        }
+        if (pair) {
+          const local = stats.get(pair.localCandidateId as string);
+          const remote = stats.get(pair.remoteCandidateId as string);
+          const route = local?.candidateType === "relay" || remote?.candidateType === "relay"
+            ? "relay"
+            : local?.candidateType === "srflx" || remote?.candidateType === "srflx"
+              ? "srflx"
+              : "host";
+          selectedCandidate = `${route} (${local?.candidateType ?? "?"} → ${remote?.candidateType ?? "?"})`;
+        }
+      } catch (error) {
+        console.error("[JUBI voice] getStats failed", error);
+      }
+      const outboundDelta = outboundPackets - previousPackets.current.outbound;
+      const inboundDelta = inboundPackets - previousPackets.current.inbound;
+      previousPackets.current = { outbound: outboundPackets, inbound: inboundPackets };
+      const audio = audioRef.current;
+      const next: VoiceDiagnostics = {
+        connection: pc.connectionState,
+        ice: pc.iceConnectionState,
+        gathering: pc.iceGatheringState,
+        signaling: pc.signalingState,
+        localDescription: pc.localDescription?.type ?? "none",
+        remoteDescription: pc.remoteDescription?.type ?? "none",
+        localAudio: trackSummary(localRef.current?.getAudioTracks() ?? []),
+        remoteAudio: trackSummary(remoteRef.current?.getAudioTracks() ?? []),
+        outbound: `${outboundPackets} packets / ${outboundBytes} bytes (Δ${outboundDelta}), codec=${outboundCodec}`,
+        inbound: `${inboundPackets} packets / ${inboundBytes} bytes (Δ${inboundDelta}), lost=${packetsLost}, jitter=${jitter.toFixed(3)}, codec=${inboundCodec}`,
+        selectedCandidate,
+        playback: audio
+          ? `srcObject=${audio.srcObject instanceof MediaStream}, paused=${audio.paused}, muted=${audio.muted}, volume=${audio.volume}${playbackState?.error ? `, error=${playbackState.error}` : ""}`
+          : "audio element missing",
+        candidates: `sent ${candidateCounts.current.sent} / received ${candidateCounts.current.received}`,
+        turn: hasTurnRelay() ? "configured" : "NOT configured — STUN only",
+      };
+      console.info("[JUBI voice] media diagnostics", next);
+      if (!cancelled) setDiagnostics(next);
+    };
+    void inspect();
+    const id = setInterval(() => void inspect(), 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [call, playbackState]);
+
   const toggleMute = () => {
     const track = localRef.current?.getAudioTracks()[0];
     if (!track) return;
@@ -390,7 +595,12 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   return (
     <VoiceCallContext.Provider value={{ call, startCall }}>
       {children}
-      <AudioSink stream={remoteStream} playToken={playToken} />
+      <AudioSink
+        stream={remoteStream}
+        playToken={playToken}
+        audioRef={audioRef}
+        onPlaybackState={setPlaybackState}
+      />
       {call && (
         <div className="fixed inset-0 z-[100] flex flex-col items-center justify-between bg-rail/95 px-6 py-14 backdrop-blur-sm">
           <div className="flex flex-col items-center gap-4 pt-10">
@@ -406,6 +616,21 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
               {call.status === "reconnecting" && `Reconnecting… ${formatDuration(seconds)}`}
             </p>
           </div>
+
+          <section className="w-full max-w-md overflow-auto rounded-lg border border-rail-foreground/20 bg-rail px-3 py-2 font-mono text-[10px] leading-4 text-rail-foreground/80" aria-label="Voice call diagnostics">
+            <p>Connection: {diagnostics.connection}</p>
+            <p>ICE: {diagnostics.ice} / gathering {diagnostics.gathering}</p>
+            <p>Signaling: {diagnostics.signaling}</p>
+            <p>Descriptions: {diagnostics.localDescription} / {diagnostics.remoteDescription}</p>
+            <p>Local audio: {diagnostics.localAudio}</p>
+            <p>Remote audio: {diagnostics.remoteAudio}</p>
+            <p>Outbound audio packets: {diagnostics.outbound}</p>
+            <p>Inbound audio packets: {diagnostics.inbound}</p>
+            <p>Selected ICE candidate: {diagnostics.selectedCandidate}</p>
+            <p>ICE candidates: {diagnostics.candidates}</p>
+            <p>TURN: {diagnostics.turn}</p>
+            <p>Remote audio playback: {diagnostics.playback}</p>
+          </section>
 
           <div className="flex items-center gap-6">
             {call.status === "incoming" ? (
