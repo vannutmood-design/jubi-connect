@@ -62,12 +62,7 @@ function FriendsPage() {
     queryKey: ["search-people", term],
     enabled: term.trim().length >= 2,
     queryFn: async () => {
-      const { data: rows } = await supabase
-        .from("profiles")
-        .select("*")
-        .ilike("username", `%${term.trim().toLowerCase()}%`)
-        .neq("id", user!.id)
-        .limit(20);
+      const { data: rows } = await supabase.rpc("search_profiles", { _q: term.trim() });
       return (rows ?? []) as Profile[];
     },
   });
