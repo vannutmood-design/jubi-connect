@@ -40,12 +40,7 @@ function SearchPage() {
     queryFn: async () => {
       const like = `%${q}%`;
       const [people, communities, dms, msgs] = await Promise.all([
-        supabase
-          .from("profiles")
-          .select("*")
-          .or(`username.ilike.${like},display_name.ilike.${like}`)
-          .neq("id", user!.id)
-          .limit(15),
+        supabase.rpc("search_profiles", { _q: q }),
         supabase.from("communities").select("id,name,description,icon_url").ilike("name", like).limit(15),
         supabase
           .from("direct_messages")
