@@ -518,6 +518,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   const processSignal = useCallback(async (row: SignalRow) => {
     if (!user || row.recipient_id !== user.id || processedSignals.current.has(row.id)) return;
     processedSignals.current.add(row.id);
+    void supabase.from("voice_signals").update({ acknowledged_at: new Date().toISOString() }).eq("id", row.id);
     const p = (row.payload ?? {}) as SignalPayload;
     const type = row.signal_type as SignalType;
     const topic = `voice_signals:${user.id}`;
@@ -612,7 +613,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
         console.info("[JUBI voice signal] inbox", { userId, topic, status: display, timestamp: new Date().toISOString() });
         if (status === "SUBSCRIBED") {
           void supabase.from("voice_signals").select("*")
-            .eq("recipient_id", userId).gt("expires_at", new Date().toISOString())
+            .eq("recipient_id", userId).is("acknowledged_at", null).gt("expires_at", new Date().toISOString())
             .order("created_at", { ascending: true })
             .then(({ data, error }) => {
               if (error) console.error("[JUBI voice signal] inbox recovery failed", { topic, message: error.message });
