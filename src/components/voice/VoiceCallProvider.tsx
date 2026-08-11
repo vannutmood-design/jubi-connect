@@ -642,7 +642,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
         inPackets: inboundPackets,
         inBytes: inboundBytes,
         inDelta: inboundDelta,
-        candidateType: selectedCandidate === "none" ? "none" : selectedCandidate.split(" ")[0],
+        candidateType: selectedCandidate === "none" ? "none" : (selectedCandidate.split(" ")[0] ?? "none"),
         audioPlaying: audio ? (audio.paused ? "paused" : "playing") : "no element",
         audioMuted: audio ? String(audio.muted) : "—",
         audioVolume: audio ? String(audio.volume) : "—",
@@ -692,19 +692,30 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
             </p>
           </div>
 
-          <section className="w-full max-w-md overflow-auto rounded-lg border border-rail-foreground/20 bg-rail px-3 py-2 font-mono text-[10px] leading-4 text-rail-foreground/80" aria-label="Voice call diagnostics">
-            <p>Connection: {diagnostics.connection}</p>
-            <p>ICE: {diagnostics.ice} / gathering {diagnostics.gathering}</p>
-            <p>Signaling: {diagnostics.signaling}</p>
-            <p>Descriptions: {diagnostics.localDescription} / {diagnostics.remoteDescription}</p>
-            <p>Local audio: {diagnostics.localAudio}</p>
-            <p>Remote audio: {diagnostics.remoteAudio}</p>
-            <p>Outbound audio packets: {diagnostics.outbound}</p>
-            <p>Inbound audio packets: {diagnostics.inbound}</p>
-            <p>Selected ICE candidate: {diagnostics.selectedCandidate}</p>
-            <p>ICE candidates: {diagnostics.candidates}</p>
-            <p>TURN: {diagnostics.turn}</p>
-            <p>Remote audio playback: {diagnostics.playback}</p>
+          <section
+            aria-label="Connection diagnostics"
+            className="max-h-[45vh] w-full max-w-md shrink-0 overflow-auto rounded-xl border-2 border-brand bg-black/85 px-3 py-2 font-mono text-[11px] leading-5 text-white shadow-lg"
+          >
+            <p className="mb-1 border-b border-white/20 pb-1 text-[12px] font-bold uppercase tracking-wide text-brand">
+              Connection Diagnostics · {diagnostics.updatedAt}
+            </p>
+            <DiagRow label="Microphone" value={diagnostics.micLive} bad={diagnostics.micLive !== "LIVE"} />
+            <DiagRow label="Local audio tracks" value={String(diagnostics.localTrackCount)} bad={diagnostics.localTrackCount === 0} />
+            <DiagRow label="Outbound RTP packets" value={`${diagnostics.outPackets} (Δ${diagnostics.outDelta})`} bad={diagnostics.outDelta === 0} />
+            <DiagRow label="Outbound RTP bytes" value={String(diagnostics.outBytes)} />
+            <DiagRow label="Remote audio tracks" value={String(diagnostics.remoteTrackCount)} bad={diagnostics.remoteTrackCount === 0} />
+            <DiagRow label="Inbound RTP packets" value={`${diagnostics.inPackets} (Δ${diagnostics.inDelta})`} bad={diagnostics.inDelta === 0} />
+            <DiagRow label="Inbound RTP bytes" value={String(diagnostics.inBytes)} bad={diagnostics.inBytes === 0} />
+            <DiagRow label="ICE connection state" value={diagnostics.ice} bad={diagnostics.ice !== "connected" && diagnostics.ice !== "completed"} />
+            <DiagRow label="Peer connection state" value={diagnostics.connection} bad={diagnostics.connection !== "connected"} />
+            <DiagRow label="Selected ICE candidate" value={diagnostics.candidateType} bad={diagnostics.candidateType === "none"} />
+            <DiagRow label="Remote audio element" value={diagnostics.audioPlaying} bad={diagnostics.audioPlaying !== "playing"} />
+            <DiagRow label="Remote audio muted" value={diagnostics.audioMuted} bad={diagnostics.audioMuted === "true"} />
+            <DiagRow label="Remote audio volume" value={diagnostics.audioVolume} bad={diagnostics.audioVolume === "0"} />
+            <DiagRow label="Audio playback error" value={diagnostics.audioError} bad={diagnostics.audioError !== "none"} />
+            <DiagRow label="TURN relay" value={diagnostics.turn} bad={!diagnostics.turn.startsWith("configured")} />
+            <DiagRow label="ICE candidates" value={diagnostics.candidates} />
+            <DiagRow label="Signaling / SDP" value={`${diagnostics.signaling} · ${diagnostics.localDescription}/${diagnostics.remoteDescription}`} />
           </section>
 
           <div className="flex items-center gap-6">
