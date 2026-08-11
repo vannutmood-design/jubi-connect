@@ -297,7 +297,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
     (notify = true, message?: string) => {
       const active = callRef.current;
       if (!active && !pcRef.current) return;
-      if (active && notify) void signal(active.peerId, "voice-hangup");
+      if (active && notify) void signal(active.peerId, "hangup");
       if (message) toast.info(message);
       // give the broadcast a tick to flush before the channel is torn down
       setTimeout(teardown, 120);
@@ -346,7 +346,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
             type: e.candidate.type,
             protocol: e.candidate.protocol,
           });
-          void signal(peerId, "voice-ice", { candidate: e.candidate.toJSON() });
+          void signal(peerId, "ice", { candidate: e.candidate.toJSON() });
         }
       };
       pc.ontrack = (e) => {
@@ -449,7 +449,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
           const offer = await pc.createOffer();
           assertAudioSdp(offer, "offer");
           await pc.setLocalDescription(offer);
-          await signal(peer.id, "voice-invite", { sdp: pc.localDescription ?? offer });
+          await signal(peer.id, "invite", { sdp: pc.localDescription ?? offer });
           invitationTimeout.current = setTimeout(() => {
             if (callRef.current?.status !== "outgoing") return;
             toast.error("Call could not reach the other user");
@@ -495,7 +495,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
         const answer = await pc.createAnswer();
         assertAudioSdp(answer, "answer");
         await pc.setLocalDescription(answer);
-        await signal(active.peerId, "voice-accept", { sdp: pc.localDescription ?? answer });
+        await signal(active.peerId, "accept", { sdp: pc.localDescription ?? answer });
         const next: ActiveCall = { ...active, status: "connecting" };
         callRef.current = next;
         setCall(next);
@@ -509,7 +509,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
 
   const declineCall = useCallback(() => {
     const active = callRef.current;
-    if (active) void signal(active.peerId, "voice-decline");
+    if (active) void signal(active.peerId, "decline");
     setTimeout(teardown, 120);
     setCall(null);
     callRef.current = null;
