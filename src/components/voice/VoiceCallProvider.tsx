@@ -163,13 +163,6 @@ function DiagRow({ label, value, bad }: { label: string; value: string; bad?: bo
   );
 }
 
-function unusedTrackSummary(tracks: MediaStreamTrack[]) {
-  if (!tracks.length) return "0 tracks";
-  return tracks
-    .map((track) => `${track.kind}:${track.readyState}, enabled=${track.enabled}, muted=${track.muted}`)
-    .join("; ");
-}
-
 function assertAudioSdp(description: RTCSessionDescriptionInit, side: "offer" | "answer") {
   const sdp = description.sdp ?? "";
   const audioLine = sdp.split("\n").find((line) => line.startsWith("m=audio"));
