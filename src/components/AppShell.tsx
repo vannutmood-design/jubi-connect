@@ -6,7 +6,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { usePresence } from "@/lib/presence";
 import { JubiAvatar } from "@/components/JubiAvatar";
-import { VoiceCallProvider } from "@/components/voice/VoiceCallProvider";
 import { cn } from "@/lib/utils";
 
 type Community = { id: string; name: string; icon_url: string | null };
@@ -63,7 +62,6 @@ export function AppShell({ children, rail = true }: { children: ReactNode; rail?
   const path = useRouterState({ select: (s) => s.location.pathname });
 
   return (
-    <VoiceCallProvider>
     <div className="flex h-[100dvh] w-full overflow-hidden bg-background">
       {rail && (
         <nav className="no-scrollbar flex w-[68px] shrink-0 flex-col items-center gap-2 overflow-y-auto bg-rail py-3">
@@ -132,6 +130,5 @@ export function AppShell({ children, rail = true }: { children: ReactNode; rail?
         </nav>
       </div>
     </div>
-    </VoiceCallProvider>
   );
 }
