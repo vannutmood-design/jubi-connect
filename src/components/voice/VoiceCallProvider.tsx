@@ -147,6 +147,23 @@ const EMPTY_DIAGNOSTICS: VoiceDiagnostics = {
 };
 
 function trackSummary(tracks: MediaStreamTrack[]) {
+  return tracks.length
+    ? tracks
+        .map((track) => `${track.kind}:${track.readyState}, enabled=${track.enabled}, muted=${track.muted}`)
+        .join("; ")
+    : "0 tracks";
+}
+
+function DiagRow({ label, value, bad }: { label: string; value: string; bad?: boolean }) {
+  return (
+    <p className="flex items-start justify-between gap-3">
+      <span className="text-white/70">{label}</span>
+      <span className={cn("text-right font-bold", bad ? "text-red-400" : "text-emerald-400")}>{value}</span>
+    </p>
+  );
+}
+
+function unusedTrackSummary(tracks: MediaStreamTrack[]) {
   if (!tracks.length) return "0 tracks";
   return tracks
     .map((track) => `${track.kind}:${track.readyState}, enabled=${track.enabled}, muted=${track.muted}`)
