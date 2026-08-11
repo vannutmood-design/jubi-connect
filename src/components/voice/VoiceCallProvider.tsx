@@ -202,6 +202,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   const invitationTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingOffer = useRef<RTCSessionDescriptionInit | null>(null);
   const iceQueue = useRef<RTCIceCandidateInit[]>([]);
+  const earlyIce = useRef(new Map<string, RTCIceCandidateInit[]>());
   const callRef = useRef<ActiveCall | null>(null);
   const candidateCounts = useRef({ sent: 0, received: 0 });
   const previousPackets = useRef({ outbound: 0, inbound: 0 });
@@ -279,6 +280,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
     callIdRef.current = null;
     pendingOffer.current = null;
     iceQueue.current = [];
+    earlyIce.current.clear();
     remoteRef.current?.getTracks().forEach((t) => t.stop());
     remoteRef.current = null;
     setRemoteStream(null);
@@ -543,6 +545,8 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
       }
       callIdRef.current = row.call_id;
       pendingOffer.current = p.sdp ?? null;
+      iceQueue.current.push(...(earlyIce.current.get(row.call_id) ?? []));
+      earlyIce.current.delete(row.call_id);
       const next: ActiveCall = {
         peerId: row.sender_id,
         peerName: p.fromName ?? "Someone",
@@ -556,7 +560,12 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
       vibrate([300, 200, 300]);
       return;
     }
-    if (row.call_id !== callIdRef.current) return;
+    if (row.call_id !== callIdRef.current) {
+      if (type === "ice" && p.candidate) {
+        earlyIce.current.set(row.call_id, [...(earlyIce.current.get(row.call_id) ?? []), p.candidate]);
+      }
+      return;
+    }
     if (type === "ack" && p.ackType === "invite") {
       if (invitationTimeout.current) clearTimeout(invitationTimeout.current);
       invitationTimeout.current = null;
