@@ -97,6 +97,21 @@ type VoiceDiagnostics = {
   playback: string;
   candidates: string;
   turn: string;
+  micLive: string;
+  localTrackCount: number;
+  remoteTrackCount: number;
+  outPackets: number;
+  outBytes: number;
+  outDelta: number;
+  inPackets: number;
+  inBytes: number;
+  inDelta: number;
+  candidateType: string;
+  audioPlaying: string;
+  audioMuted: string;
+  audioVolume: string;
+  audioError: string;
+  updatedAt: string;
 };
 
 const EMPTY_DIAGNOSTICS: VoiceDiagnostics = {
@@ -114,6 +129,21 @@ const EMPTY_DIAGNOSTICS: VoiceDiagnostics = {
   playback: "no remote stream",
   candidates: "sent 0 / received 0",
   turn: "checking…",
+  micLive: "NOT LIVE",
+  localTrackCount: 0,
+  remoteTrackCount: 0,
+  outPackets: 0,
+  outBytes: 0,
+  outDelta: 0,
+  inPackets: 0,
+  inBytes: 0,
+  inDelta: 0,
+  candidateType: "none",
+  audioPlaying: "paused",
+  audioMuted: "—",
+  audioVolume: "—",
+  audioError: "none",
+  updatedAt: "—",
 };
 
 function trackSummary(tracks: MediaStreamTrack[]) {
