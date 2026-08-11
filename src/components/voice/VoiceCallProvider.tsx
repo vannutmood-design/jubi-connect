@@ -613,6 +613,9 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
       const inboundDelta = inboundPackets - previousPackets.current.inbound;
       previousPackets.current = { outbound: outboundPackets, inbound: inboundPackets };
       const audio = audioRef.current;
+      const localTracks = localRef.current?.getAudioTracks() ?? [];
+      const remoteTracks = remoteRef.current?.getAudioTracks() ?? [];
+      const micTrack = localTracks[0];
       const next: VoiceDiagnostics = {
         connection: pc.connectionState,
         ice: pc.iceConnectionState,
@@ -630,6 +633,21 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
           : "audio element missing",
         candidates: `sent ${candidateCounts.current.sent} / received ${candidateCounts.current.received}`,
         turn: hasTurnRelay() ? "configured" : "NOT configured — STUN only",
+        micLive: micTrack && micTrack.readyState === "live" ? "LIVE" : "NOT LIVE",
+        localTrackCount: localTracks.length,
+        remoteTrackCount: remoteTracks.length,
+        outPackets: outboundPackets,
+        outBytes: outboundBytes,
+        outDelta: outboundDelta,
+        inPackets: inboundPackets,
+        inBytes: inboundBytes,
+        inDelta: inboundDelta,
+        candidateType: selectedCandidate === "none" ? "none" : selectedCandidate.split(" ")[0],
+        audioPlaying: audio ? (audio.paused ? "paused" : "playing") : "no element",
+        audioMuted: audio ? String(audio.muted) : "—",
+        audioVolume: audio ? String(audio.volume) : "—",
+        audioError: playbackState?.error ?? "none",
+        updatedAt: new Date().toLocaleTimeString(),
       };
       console.info("[JUBI voice] media diagnostics", next);
       if (!cancelled) setDiagnostics(next);
