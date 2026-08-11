@@ -7,7 +7,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { RealtimeChannel } from "@supabase/supabase-js";
 import { Mic, MicOff, Phone, PhoneOff } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -20,8 +19,6 @@ import {
   getMicStream,
   getRtcConfig,
   hasTurnRelay,
-  inboxTopic,
-  joinChannel,
   stopStream,
   vibrate,
 } from "@/lib/voice";
@@ -43,35 +40,6 @@ type VoiceCallValue = {
 
 const VoiceCallContext = createContext<VoiceCallValue>({ call: null, startCall: () => {} });
 
-// A single shared inbox subscription per user. Two channels on the same realtime
-// topic fight over the same server-side join, so remounts (StrictMode, route
-// changes) must reuse one channel instead of joining twice.
-let inbox: {
-  userId: string;
-  promise: Promise<RealtimeChannel>;
-  count: number;
-} | null = null;
-
-function acquireInbox(userId: string, setup: (ch: RealtimeChannel) => void) {
-  if (!inbox || inbox.userId !== userId) {
-    if (inbox) {
-      const stale = inbox;
-      void stale.promise.then((ch) => supabase.removeChannel(ch)).catch(() => undefined);
-    }
-    inbox = { userId, promise: joinChannel(inboxTopic(userId), setup), count: 0 };
-  }
-  inbox.count += 1;
-  const current = inbox;
-  return () => {
-    current.count -= 1;
-    setTimeout(() => {
-      if (current.count > 0 || inbox !== current) return;
-      inbox = null;
-      void current.promise.then((ch) => supabase.removeChannel(ch)).catch(() => undefined);
-    }, 800);
-  };
-}
-
 export const useVoiceCall = () => useContext(VoiceCallContext);
 
 type SignalPayload = {
@@ -80,6 +48,49 @@ type SignalPayload = {
   fromAvatar?: string | null;
   sdp?: RTCSessionDescriptionInit;
   candidate?: RTCIceCandidateInit;
+  ackType?: string;
+};
+
+type SignalType = "invite" | "accept" | "ice" | "decline" | "busy" | "hangup" | "ack";
+
+type SignalRow = {
+  id: string;
+  call_id: string;
+  sender_id: string;
+  recipient_id: string;
+  signal_type: string;
+  payload: unknown;
+  created_at: string;
+};
+
+type SignalingDiagnostics = {
+  role: "CALLER" | "CALLEE" | "IDLE";
+  currentUserId: string;
+  targetUserId: string;
+  topic: string;
+  channelStatus: string;
+  invitationSent: string;
+  invitationReceived: string;
+  offerSent: string;
+  offerReceived: string;
+  offerAck: string;
+  answerSent: string;
+  lastEvent: string;
+};
+
+const EMPTY_SIGNALING: SignalingDiagnostics = {
+  role: "IDLE",
+  currentUserId: "—",
+  targetUserId: "—",
+  topic: "—",
+  channelStatus: "CREATED",
+  invitationSent: "no",
+  invitationReceived: "no",
+  offerSent: "no",
+  offerReceived: "no",
+  offerAck: "pending",
+  answerSent: "no",
+  lastEvent: "—",
 };
 
 type VoiceDiagnostics = {
@@ -180,16 +191,18 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   const [playToken, setPlayToken] = useState(0);
   const [diagnostics, setDiagnostics] = useState<VoiceDiagnostics>(EMPTY_DIAGNOSTICS);
   const [playbackState, setPlaybackState] = useState<AudioPlaybackState | null>(null);
+  const [signalingDiagnostics, setSignalingDiagnostics] = useState<SignalingDiagnostics>(EMPTY_SIGNALING);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const localRef = useRef<MediaStream | null>(null);
   const remoteRef = useRef<MediaStream | null>(null);
-  // Single in-flight promise per peer topic so rapid ICE candidates never race
-  // into creating (and sending on) multiple unsubscribed channels.
-  const outRef = useRef<{ topic: string; channel: Promise<RealtimeChannel> } | null>(null);
+  const callIdRef = useRef<string | null>(null);
+  const processedSignals = useRef(new Set<string>());
+  const invitationTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingOffer = useRef<RTCSessionDescriptionInit | null>(null);
   const iceQueue = useRef<RTCIceCandidateInit[]>([]);
+  const earlyIce = useRef(new Map<string, RTCIceCandidateInit[]>());
   const callRef = useRef<ActiveCall | null>(null);
   const candidateCounts = useRef({ sent: 0, received: 0 });
   const previousPackets = useRef({ outbound: 0, inbound: 0 });
@@ -212,26 +225,20 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const outChannel = useCallback((peerId: string) => {
-    const topic = inboxTopic(peerId);
-    if (!outRef.current || outRef.current.topic !== topic) {
-      outRef.current = { topic, channel: joinChannel(topic) };
-    }
-    return outRef.current.channel;
-  }, []);
-
   const signal = useCallback(
-    async (peerId: string, event: string, payload: Record<string, unknown> = {}) => {
-      if (!user) return;
-      let channel: RealtimeChannel;
-      try {
-        channel = await outChannel(peerId);
-      } catch {
-        return;
-      }
-      await channel.send({
-        type: "broadcast",
-        event,
+    async (peerId: string, event: SignalType, payload: Record<string, unknown> = {}) => {
+      const callId = callIdRef.current;
+      if (!user || !callId) throw new Error("Call signaling is not initialized");
+      const topic = `voice_signals:${peerId}`;
+      const timestamp = new Date().toISOString();
+      console.info("[JUBI voice signal] outgoing", {
+        type: event, callId, senderUserId: user.id, targetUserId: peerId, topic, timestamp,
+      });
+      const { error } = await supabase.from("voice_signals").insert({
+        call_id: callId,
+        sender_id: user.id,
+        recipient_id: peerId,
+        signal_type: event,
         payload: {
           ...payload,
           from: user.id,
@@ -239,8 +246,20 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
           fromAvatar: profile?.avatar_url ?? null,
         },
       });
+      if (error) {
+        console.error("[JUBI voice signal] persistence failed", { type: event, callId, topic, message: error.message });
+        throw new Error("Could not deliver call signal");
+      }
+      setSignalingDiagnostics((current) => ({
+        ...current,
+        targetUserId: peerId,
+        invitationSent: event === "invite" ? "yes (persisted)" : current.invitationSent,
+        offerSent: event === "invite" ? "yes" : current.offerSent,
+        answerSent: event === "accept" ? "yes (persisted)" : current.answerSent,
+        lastEvent: `sent ${event} · ${new Date().toLocaleTimeString()}`,
+      }));
     },
-    [user, profile, outChannel],
+    [user, profile],
   );
 
   const teardown = useCallback(() => {
@@ -256,11 +275,12 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
     pcRef.current = null;
     stopStream(localRef.current);
     localRef.current = null;
-    const out = outRef.current;
-    if (out) void out.channel.then((ch) => supabase.removeChannel(ch)).catch(() => undefined);
-    outRef.current = null;
+    if (invitationTimeout.current) clearTimeout(invitationTimeout.current);
+    invitationTimeout.current = null;
+    callIdRef.current = null;
     pendingOffer.current = null;
     iceQueue.current = [];
+    earlyIce.current.clear();
     remoteRef.current?.getTracks().forEach((t) => t.stop());
     remoteRef.current = null;
     setRemoteStream(null);
@@ -268,6 +288,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
     setSeconds(0);
     setDiagnostics(EMPTY_DIAGNOSTICS);
     setPlaybackState(null);
+    setSignalingDiagnostics((current) => ({ ...EMPTY_SIGNALING, currentUserId: current.currentUserId, topic: current.topic, channelStatus: current.channelStatus }));
     candidateCounts.current = { sent: 0, received: 0 };
     previousPackets.current = { outbound: 0, inbound: 0 };
     setCall(null);
@@ -278,7 +299,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
     (notify = true, message?: string) => {
       const active = callRef.current;
       if (!active && !pcRef.current) return;
-      if (active && notify) void signal(active.peerId, "voice-hangup");
+      if (active && notify) void signal(active.peerId, "hangup");
       if (message) toast.info(message);
       // give the broadcast a tick to flush before the channel is torn down
       setTimeout(teardown, 120);
@@ -290,10 +311,6 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
 
   const buildPeerConnection = useCallback(
     async (peerId: string) => {
-      // Join the signalling channel BEFORE any candidate can be produced,
-      // otherwise early trickled candidates are sent on an unsubscribed
-      // channel and silently dropped (call connects, but no audio).
-      await outChannel(peerId).catch(() => undefined);
       const stream = await getMicStream();
       const microphone = stream.getAudioTracks()[0];
       console.info("[JUBI voice] getUserMedia audio track", microphone ? {
@@ -331,7 +348,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
             type: e.candidate.type,
             protocol: e.candidate.protocol,
           });
-          void signal(peerId, "voice-ice", { candidate: e.candidate.toJSON() });
+          void signal(peerId, "ice", { candidate: e.candidate.toJSON() });
         }
       };
       pc.ontrack = (e) => {
@@ -383,7 +400,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
       pcRef.current = pc;
       return pc;
     },
-    [signal, endCall, outChannel],
+    [signal, endCall],
   );
 
   const flushIce = useCallback(async () => {
@@ -413,6 +430,15 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
         peerAvatar: peer.avatar ?? null,
         status: "outgoing",
       };
+      callIdRef.current = crypto.randomUUID();
+      setSignalingDiagnostics((current) => ({
+        ...EMPTY_SIGNALING,
+        role: "CALLER",
+        currentUserId: user.id,
+        targetUserId: peer.id,
+        topic: current.topic,
+        channelStatus: current.channelStatus,
+      }));
       setCall(next);
       callRef.current = next;
       unlockRemoteAudio();
@@ -425,7 +451,12 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
           const offer = await pc.createOffer();
           assertAudioSdp(offer, "offer");
           await pc.setLocalDescription(offer);
-          await signal(peer.id, "voice-invite", { sdp: pc.localDescription ?? offer });
+          await signal(peer.id, "invite", { sdp: pc.localDescription ?? offer });
+          invitationTimeout.current = setTimeout(() => {
+            if (callRef.current?.status !== "outgoing") return;
+            toast.error("Call could not reach the other user");
+            teardown();
+          }, 12000);
           await supabase.from("notifications").insert({
             user_id: peer.id,
             type: "call",
@@ -466,7 +497,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
         const answer = await pc.createAnswer();
         assertAudioSdp(answer, "answer");
         await pc.setLocalDescription(answer);
-        await signal(active.peerId, "voice-accept", { sdp: pc.localDescription ?? answer });
+        await signal(active.peerId, "accept", { sdp: pc.localDescription ?? answer });
         const next: ActiveCall = { ...active, status: "connecting" };
         callRef.current = next;
         setCall(next);
@@ -480,82 +511,129 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
 
   const declineCall = useCallback(() => {
     const active = callRef.current;
-    if (active) void signal(active.peerId, "voice-decline");
+    if (active) void signal(active.peerId, "decline");
     setTimeout(teardown, 120);
     setCall(null);
     callRef.current = null;
   }, [signal, teardown]);
 
-  // Personal inbox: everything addressed to me arrives here.
-  // Handlers live in a ref so identity churn (profile loading, call state) can
-  // never tear down and re-create the subscription mid-call.
-  const handlers = useRef({ signal, flushIce, endCall });
+  const processSignal = useCallback(async (row: SignalRow) => {
+    if (!user || row.recipient_id !== user.id || processedSignals.current.has(row.id)) return;
+    processedSignals.current.add(row.id);
+    void supabase.from("voice_signals").update({ acknowledged_at: new Date().toISOString() }).eq("id", row.id);
+    const p = (row.payload ?? {}) as SignalPayload;
+    const type = row.signal_type as SignalType;
+    const topic = `voice_signals:${user.id}`;
+    console.info("[JUBI voice signal] incoming", {
+      type, callId: row.call_id, senderUserId: row.sender_id, targetUserId: row.recipient_id, topic, timestamp: row.created_at,
+    });
+    setSignalingDiagnostics((current) => ({
+      ...current,
+      currentUserId: user.id,
+      targetUserId: row.sender_id,
+      invitationReceived: type === "invite" ? "yes" : current.invitationReceived,
+      offerReceived: type === "invite" && p.sdp ? "yes" : current.offerReceived,
+      offerAck: type === "ack" && p.ackType === "invite" ? "delivered" : current.offerAck,
+      lastEvent: `received ${type} · ${new Date().toLocaleTimeString()}`,
+    }));
+
+    if (type === "invite") {
+      if (callRef.current || pcRef.current) {
+        callIdRef.current = row.call_id;
+        await signal(row.sender_id, "busy");
+        return;
+      }
+      callIdRef.current = row.call_id;
+      pendingOffer.current = p.sdp ?? null;
+      iceQueue.current.push(...(earlyIce.current.get(row.call_id) ?? []));
+      earlyIce.current.delete(row.call_id);
+      const next: ActiveCall = {
+        peerId: row.sender_id,
+        peerName: p.fromName ?? "Someone",
+        peerAvatar: p.fromAvatar ?? null,
+        status: "incoming",
+      };
+      callRef.current = next;
+      setCall(next);
+      setSignalingDiagnostics((current) => ({ ...current, role: "CALLEE" }));
+      await signal(row.sender_id, "ack", { ackType: "invite" });
+      vibrate([300, 200, 300]);
+      return;
+    }
+    if (row.call_id !== callIdRef.current) {
+      if (type === "ice" && p.candidate) {
+        earlyIce.current.set(row.call_id, [...(earlyIce.current.get(row.call_id) ?? []), p.candidate]);
+      }
+      return;
+    }
+    if (type === "ack" && p.ackType === "invite") {
+      if (invitationTimeout.current) clearTimeout(invitationTimeout.current);
+      invitationTimeout.current = null;
+      return;
+    }
+    if (type === "accept") {
+      const pc = pcRef.current;
+      if (!pc || !p.sdp || pc.signalingState !== "have-local-offer") return;
+      await pc.setRemoteDescription(p.sdp);
+      await flushIce();
+      if (invitationTimeout.current) clearTimeout(invitationTimeout.current);
+      const active = callRef.current;
+      if (active?.status === "outgoing") {
+        const next = { ...active, status: "connecting" as const };
+        callRef.current = next;
+        setCall(next);
+      }
+      return;
+    }
+    if (type === "ice" && p.candidate) {
+      candidateCounts.current.received += 1;
+      const pc = pcRef.current;
+      if (pc?.remoteDescription) await pc.addIceCandidate(p.candidate).catch(() => undefined);
+      else iceQueue.current.push(p.candidate);
+      return;
+    }
+    if (type === "decline") endCall(false, "Call declined");
+    if (type === "busy") endCall(false, "They're on another call");
+    if (type === "hangup") endCall(false, "Call ended");
+  }, [user, signal, flushIce, endCall]);
+
+  // Persistent database signals close the race where Realtime broadcasts sent
+  // before a callee subscribed were permanently lost. Realtime wakes the inbox;
+  // the initial query recovers anything sent during mounts, route changes or reconnects.
+  const handlers = useRef({ processSignal });
   useEffect(() => {
-    handlers.current = { signal, flushIce, endCall };
-  }, [signal, flushIce, endCall]);
+    handlers.current = { processSignal };
+  }, [processSignal]);
 
   const userId = user?.id;
   useEffect(() => {
     if (!userId) return;
-    const release = acquireInbox(userId, (ch) => {
-      ch.on("broadcast", { event: "voice-invite" }, ({ payload }) => {
-        const p = payload as SignalPayload;
-        if (callRef.current || pcRef.current) {
-          void handlers.current.signal(p.from, "voice-busy");
-          return;
+    const topic = `voice_signals:${userId}`;
+    setSignalingDiagnostics((current) => ({ ...current, currentUserId: userId, topic, channelStatus: "CREATED" }));
+    console.info("[JUBI voice signal] inbox", { userId, topic, status: "CREATED", timestamp: new Date().toISOString() });
+    const channel = supabase
+      .channel(topic)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "voice_signals", filter: `recipient_id=eq.${userId}` }, (change) => {
+        void handlers.current.processSignal(change.new as SignalRow);
+      })
+      .subscribe((status) => {
+        const display = status === "CHANNEL_ERROR" ? "ERROR" : status;
+        setSignalingDiagnostics((current) => ({ ...current, channelStatus: display }));
+        console.info("[JUBI voice signal] inbox", { userId, topic, status: display, timestamp: new Date().toISOString() });
+        if (status === "SUBSCRIBED") {
+          void supabase.from("voice_signals").select("*")
+            .eq("recipient_id", userId).is("acknowledged_at", null).gt("expires_at", new Date().toISOString())
+            .order("created_at", { ascending: true })
+            .then(({ data, error }) => {
+              if (error) console.error("[JUBI voice signal] inbox recovery failed", { topic, message: error.message });
+              for (const row of data ?? []) void handlers.current.processSignal(row as SignalRow);
+            });
         }
-        pendingOffer.current = p.sdp ?? null;
-        const next: ActiveCall = {
-          peerId: p.from,
-          peerName: p.fromName ?? "Someone",
-          peerAvatar: p.fromAvatar ?? null,
-          status: "incoming",
-        };
-        callRef.current = next;
-        setCall(next);
-        vibrate([300, 200, 300]);
       });
-
-      ch.on("broadcast", { event: "voice-accept" }, ({ payload }) => {
-        const p = payload as SignalPayload;
-        void (async () => {
-          const pc = pcRef.current;
-          if (!pc || !p.sdp) return;
-          if (pc.signalingState !== "have-local-offer") return;
-          await pc.setRemoteDescription(p.sdp);
-          await handlers.current.flushIce();
-          const active = callRef.current;
-          if (active && active.status === "outgoing") {
-            const next: ActiveCall = { ...active, status: "connecting" };
-            callRef.current = next;
-            setCall(next);
-          }
-        })();
-      });
-
-      ch.on("broadcast", { event: "voice-ice" }, ({ payload }) => {
-        const p = payload as SignalPayload;
-        if (!p.candidate) return;
-        candidateCounts.current.received += 1;
-        console.info("[JUBI voice] remote ICE candidate", {
-          type: p.candidate.candidate?.split(" ")[8] ?? "unknown",
-        });
-        const pc = pcRef.current;
-        if (pc?.remoteDescription) void pc.addIceCandidate(p.candidate).catch(() => undefined);
-        else iceQueue.current.push(p.candidate);
-      });
-
-      ch.on("broadcast", { event: "voice-decline" }, () =>
-        handlers.current.endCall(false, "Call declined"),
-      );
-      ch.on("broadcast", { event: "voice-busy" }, () =>
-        handlers.current.endCall(false, "They're on another call"),
-      );
-      ch.on("broadcast", { event: "voice-hangup" }, () =>
-        handlers.current.endCall(false, "Call ended"),
-      );
-    });
-    return release;
+    return () => {
+      console.info("[JUBI voice signal] inbox", { userId, topic, status: "CLOSED", timestamp: new Date().toISOString() });
+      void supabase.removeChannel(channel);
+    };
   }, [userId]);
 
   // Call timer
@@ -726,6 +804,19 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
             <DiagRow label="TURN relay" value={diagnostics.turn} bad={!diagnostics.turn.startsWith("configured")} />
             <DiagRow label="ICE candidates" value={diagnostics.candidates} />
             <DiagRow label="Signaling / SDP" value={`${diagnostics.signaling} · ${diagnostics.localDescription}/${diagnostics.remoteDescription}`} />
+            <p className="my-1 border-y border-white/20 py-1 text-[12px] font-bold uppercase text-brand">
+              Signaling Diagnostics · {signalingDiagnostics.role}
+            </p>
+            <DiagRow label="Current user ID" value={signalingDiagnostics.currentUserId} />
+            <DiagRow label="Target user ID" value={signalingDiagnostics.targetUserId} />
+            <DiagRow label="Signaling topic" value={signalingDiagnostics.topic} />
+            <DiagRow label="Channel status" value={signalingDiagnostics.channelStatus} bad={signalingDiagnostics.channelStatus !== "SUBSCRIBED"} />
+            <DiagRow label="Invitation sent" value={signalingDiagnostics.invitationSent} bad={signalingDiagnostics.role === "CALLER" && signalingDiagnostics.invitationSent === "no"} />
+            <DiagRow label="Invitation received" value={signalingDiagnostics.invitationReceived} bad={signalingDiagnostics.role === "CALLEE" && signalingDiagnostics.invitationReceived === "no"} />
+            <DiagRow label="Offer sent / received" value={`${signalingDiagnostics.offerSent} / ${signalingDiagnostics.offerReceived}`} />
+            <DiagRow label="Offer delivery / ack" value={signalingDiagnostics.offerAck} bad={signalingDiagnostics.role === "CALLER" && signalingDiagnostics.offerAck !== "delivered"} />
+            <DiagRow label="Answer sent" value={signalingDiagnostics.answerSent} />
+            <DiagRow label="Last signal" value={signalingDiagnostics.lastEvent} />
           </section>
 
           <div className="flex items-center gap-6">

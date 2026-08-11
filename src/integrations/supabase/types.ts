@@ -396,6 +396,42 @@ export type Database = {
         }
         Relationships: []
       }
+      voice_signals: {
+        Row: {
+          acknowledged_at: string | null
+          call_id: string
+          created_at: string
+          expires_at: string
+          id: string
+          payload: Json
+          recipient_id: string
+          sender_id: string
+          signal_type: string
+        }
+        Insert: {
+          acknowledged_at?: string | null
+          call_id: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          payload?: Json
+          recipient_id: string
+          sender_id: string
+          signal_type: string
+        }
+        Update: {
+          acknowledged_at?: string | null
+          call_id?: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          payload?: Json
+          recipient_id?: string
+          sender_id?: string
+          signal_type?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
