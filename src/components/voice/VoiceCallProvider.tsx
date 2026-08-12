@@ -16,6 +16,7 @@ import { AudioSink, type AudioPlaybackState } from "@/components/voice/AudioSink
 import {
   RTC_CONFIG,
   formatDuration,
+  getCameraStream,
   getMicStream,
   getRtcConfig,
   hasTurnRelay,
@@ -186,7 +187,10 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   const { user, profile } = useAuth();
   const [call, setCall] = useState<ActiveCall | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [localVideoStream, setLocalVideoStream] = useState<MediaStream | null>(null);
   const [muted, setMuted] = useState(false);
+  const [cameraOn, setCameraOn] = useState(false);
+  const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
   const [seconds, setSeconds] = useState(0);
   const [playToken, setPlayToken] = useState(0);
   const [diagnostics, setDiagnostics] = useState<VoiceDiagnostics>(EMPTY_DIAGNOSTICS);
@@ -196,6 +200,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const localRef = useRef<MediaStream | null>(null);
+  const localVideoRef = useRef<MediaStream | null>(null);
   const remoteRef = useRef<MediaStream | null>(null);
   const callIdRef = useRef<string | null>(null);
   const processedSignals = useRef(new Set<string>());
@@ -311,8 +316,8 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
 
   const buildPeerConnection = useCallback(
     async (peerId: string) => {
-      const stream = await getMicStream();
-      const microphone = stream.getAudioTracks()[0];
+    const stream = await getMicStream();
+const microphone = stream.getAudioTracks()[0];
       console.info("[JUBI voice] getUserMedia audio track", microphone ? {
         kind: microphone.kind,
         readyState: microphone.readyState,
@@ -336,6 +341,13 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
       setRemoteStream(remote);
 
       stream.getAudioTracks().forEach((track) => pc.addTrack(track, stream));
+      const localVideo = localVideoRef.current;
+
+  if (localVideo) {
+    localVideo.getVideoTracks().forEach((track) => {
+      pc.addTrack(track, localVideo);
+    });
+  }
       if (!pc.getSenders().some((sender) => sender.track?.kind === "audio")) {
         pc.close();
         stopStream(stream);
@@ -754,7 +766,156 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
     track.enabled = !track.enabled;
     setMuted(!track.enabled);
   };
+const toggleCamera = async () => {
+  if (!cameraOn) {
+    try {
+      const stream = await getCameraStream(facingMode);
+      const videoTrack = stream.getVideoTracks()[0];
 
+      if (!videoTrack) {
+        stopStream(stream);
+        return;
+      }
+
+      localVideoRef.current = stream;
+      setLocalVideoStream(stream);
+
+      const pc = pcRef.current;
+
+      if (pc) {
+        const sender = pc.getSenders().find(
+          (item) => item.track?.kind === "video",
+        );
+
+        if (sender) {
+          await sender.replaceTrack(videoTrack);
+        } else {
+          pc.addTrack(videoTrack, stream);
+        }
+      }
+
+      setCameraOn(true);
+    } catch (error) {
+      console.error("[JUBI voice] camera could not be started", error);
+    }
+
+    return;
+  }
+
+  const stream = localVideoRef.current;
+
+  if (stream) {
+    stream.getVideoTracks().forEach((track) => track.stop());
+  }
+
+  localVideoRef.current = null;
+  setLocalVideoStream(null);
+  setCameraOn(false);
+};
+
+const switchCamera = async () => {
+  if (!cameraOn) return;
+
+  try {
+    const nextFacingMode =
+      facingMode === "user" ? "environment" : "user";
+
+    const newStream = await getCameraStream(nextFacingMode);
+    const newTrack = newStream.getVideoTracks()[0];
+
+    if (!newTrack) {
+      stopStream(newStream);
+      return;
+    }
+
+    const pc = pcRef.current;
+
+    if (pc) {
+      const sender = pc.getSenders().find(
+        (item) => item.track?.kind === "video",
+      );
+
+      if (sender) {
+        await sender.replaceTrack(newTrack);
+      }
+    }
+
+    const oldStream = localVideoRef.current;
+
+    if (oldStream) {
+      oldStream.getVideoTracks().forEach((track) => track.stop());
+    }
+
+    localVideoRef.current = newStream;
+    setLocalVideoStream(newStream);
+    setFacingMode(nextFacingMode);
+  } catch (error) {
+    console.error("[JUBI voice] camera switch failed", error);
+  }
+};
+
+      if (sender) {
+        await sender.replaceTrack(newTrack);
+      }
+    }
+
+    const oldStream = localVideoRef.current;
+
+    if (oldStream) {
+      oldStream.getVideoTracks().forEach((track) => track.stop());
+    }
+
+    localVideoRef.current = newStream;
+    setLocalVideoStream(newStream);
+    setFacingMode(nextFacingMode);
+  } catch (error) {
+    console.error("[JUBI voice] camera switch failed", error);
+  }
+};
+      if (sender) {
+        await sender.replaceTrack(newTrack);
+      }
+    }
+
+    const oldStream = localVideoRef.current;
+
+    if (oldStream) {
+      oldStream.getVideoTracks().forEach((track) => track.stop());
+    }
+
+    localVideoRef.current = newStream;
+    setLocalVideoStream(newStream);
+    setFacingMode(nextFacingMode);
+  } catch (error) {
+    console.error("[JUBI voice] camera switch failed", error);
+  }
+};
+
+        if (sender) {
+          await sender.replaceTrack(videoTrack);
+        } else {
+          pc.addTrack(videoTrack, stream);
+        }
+      }
+
+      setCameraOn(true);
+    } catch (error) {
+      console.error("[JUBI voice] camera could not be started", error);
+    }
+
+    return;
+  }
+
+  const stream = localVideoRef.current;
+
+  if (stream) {
+    stream.getVideoTracks().forEach((track) => track.stop());
+  }
+
+  localVideoRef.current = null;
+  setLocalVideoStream(null);
+  setCameraOn(false);
+};
   return (
     <VoiceCallContext.Provider value={{ call, startCall }}>
       {children}
