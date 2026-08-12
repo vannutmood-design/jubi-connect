@@ -43,9 +43,31 @@ export async function getMicStream(): Promise<MediaStream> {
   if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
     throw new Error("Microphone is not available on this device");
   }
+
   return navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    },
     video: false,
+  });
+}
+
+export async function getCameraStream(
+  facingMode: "user" | "environment" = "user",
+): Promise<MediaStream> {
+  if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+    throw new Error("Camera is not available on this device");
+  }
+
+  return navigator.mediaDevices.getUserMedia({
+    audio: false,
+    video: {
+      facingMode,
+      width: { ideal: 1280 },
+      height: { ideal: 720 },
+    },
   });
 }
 
