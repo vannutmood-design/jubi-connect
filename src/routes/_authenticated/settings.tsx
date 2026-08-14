@@ -133,7 +133,7 @@ function SettingsPage() {
               <JubiAvatar src={profile?.avatar_url} name={profile?.username} size="lg" />
               <div className="min-w-0">
                 <p className="truncate font-bold">@{profile?.username}</p>
-                <label className="mt-1 inline-block cursor-pointer text-xs font-medium text-brand-strong underline">
+                <label className="mt-1 inline-block cursor-pointer text-xs font-medium text-brand underline">
                   Change avatar
                   <input
                     type="file"

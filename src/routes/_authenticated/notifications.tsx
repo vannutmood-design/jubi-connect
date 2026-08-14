@@ -87,7 +87,7 @@ function NotificationsPage() {
           {(data ?? []).map((n) => (
             <div
               key={n.id}
-              className={`border-b border-border px-4 py-3 ${n.read ? "" : "bg-brand-soft"}`}
+              className={`border-b border-border px-4 py-3 ${n.read ? "" : "bg-brand/10"}`}
             >
               <div className="flex items-baseline justify-between gap-2">
                 <p className="text-sm font-semibold">{n.title}</p>

@@ -854,68 +854,6 @@ const switchCamera = async () => {
   }
 };
 
-      if (sender) {
-        await sender.replaceTrack(newTrack);
-      }
-    }
-
-    const oldStream = localVideoRef.current;
-
-    if (oldStream) {
-      oldStream.getVideoTracks().forEach((track) => track.stop());
-    }
-
-    localVideoRef.current = newStream;
-    setLocalVideoStream(newStream);
-    setFacingMode(nextFacingMode);
-  } catch (error) {
-    console.error("[JUBI voice] camera switch failed", error);
-  }
-};
-      if (sender) {
-        await sender.replaceTrack(newTrack);
-      }
-    }
-
-    const oldStream = localVideoRef.current;
-
-    if (oldStream) {
-      oldStream.getVideoTracks().forEach((track) => track.stop());
-    }
-
-    localVideoRef.current = newStream;
-    setLocalVideoStream(newStream);
-    setFacingMode(nextFacingMode);
-  } catch (error) {
-    console.error("[JUBI voice] camera switch failed", error);
-  }
-};
-
-        if (sender) {
-          await sender.replaceTrack(videoTrack);
-        } else {
-          pc.addTrack(videoTrack, stream);
-        }
-      }
-
-      setCameraOn(true);
-    } catch (error) {
-      console.error("[JUBI voice] camera could not be started", error);
-    }
-
-    return;
-  }
-
-  const stream = localVideoRef.current;
-
-  if (stream) {
-    stream.getVideoTracks().forEach((track) => track.stop());
-  }
-
-  localVideoRef.current = null;
-  setLocalVideoStream(null);
-  setCameraOn(false);
-};
   return (
     <VoiceCallContext.Provider value={{ call, startCall }}>
       {children}
